@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addons>
+<addon id="repository.sesn" name="Sesn Repository" version="1.0.0" provider-name="Sesn">
+  <extension point="xbmc.addon.repository" name="Sesn Repository">
+    <dir>
+      <info compressed="false">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml</info>
+      <checksum>https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml.md5</checksum>
+      <datadir zip="true">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo</datadir>
+    </dir>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Install and auto-update the Sesn add-on for Kodi</summary>
+    <description lang="en_GB">Adds the Sesn repository so Kodi can install and keep the Sesn add-on (script.sesn) up to date automatically. Sesn is a simple, private TV, film and anime tracker — sesn.io.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+    <source>https://github.com/sesn-io/sesn-integrations</source>
+    <website>https://sesn.io/kodi</website>
+    <assets>
+      <icon>icon.png</icon>
+    </assets>
+  </extension>
+</addon>
+<addon id="script.sesn" name="Sesn" version="0.2.4" provider-name="Sesn">
+  <requires>
+    <!-- Kodi 19 Matrix+ (Python 3). getUniqueID / onAVStarted / xbmcvfs all land here. -->
+    <import addon="xbmc.python" version="3.0.0"/>
+    <!-- Do NOT vendor requests — it ships as a module addon. -->
+    <import addon="script.module.requests" version="2.22.0"/>
+  </requires>
+  <!-- Background scrobbler service. -->
+  <extension point="xbmc.service" library="service.py"/>
+  <!-- Opening the addon shows its settings (pairing lives there). -->
+  <extension point="xbmc.python.script" library="default.py">
+    <provides>executable</provides>
+  </extension>
+  <!-- Browse Sesn (Watchlist / Up Next / lists) as a video source, with
+       "playable now" flags against this box's library. -->
+  <extension point="xbmc.python.pluginsource" library="resources/lib/plugin.py">
+    <provides>video</provides>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Scrobble your Kodi playback to Sesn</summary>
+    <description lang="en_GB">Automatically log what you watch in Kodi to your Sesn account (sesn.io) — a simple, private TV, film and anime tracker. Sends only the title/ids, position and your key; never your library or file paths. Live TV is never scrobbled.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+    <source>https://github.com/sesn-io/sesn-integrations</source>
+    <website>https://sesn.io/kodi</website>
+    <assets>
+      <icon>icon.png</icon>
+      <fanart>fanart.jpg</fanart>
+    </assets>
+    <news>0.2.4 - Connected status in settings, fanart, disconnect button.</news>
+  </extension>
+</addon>
+</addons>

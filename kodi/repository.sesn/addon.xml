@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="repository.sesn" name="Sesn Repository" version="1.0.0" provider-name="Sesn">
+  <extension point="xbmc.addon.repository" name="Sesn Repository">
+    <dir>
+      <info compressed="false">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml</info>
+      <checksum>https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml.md5</checksum>
+      <datadir zip="true">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo</datadir>
+    </dir>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Install and auto-update the Sesn add-on for Kodi</summary>
+    <description lang="en_GB">Adds the Sesn repository so Kodi can install and keep the Sesn add-on (script.sesn) up to date automatically. Sesn is a simple, private TV, film and anime tracker — sesn.io.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+    <source>https://github.com/sesn-io/sesn-integrations</source>
+    <website>https://sesn.io/kodi</website>
+    <assets>
+      <icon>icon.png</icon>
+    </assets>
+  </extension>
+</addon>
