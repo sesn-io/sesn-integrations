@@ -10,10 +10,12 @@ the /api/v1/up-next + /lists/[id] shapes but should be verified on a real box.
 """
 import os
 import sys
+import time
 from urllib.parse import urlencode, parse_qsl  # Kodi 19+ is Python 3
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+import xbmc  # noqa: E402
 import xbmcaddon  # noqa: E402
 import xbmcgui  # noqa: E402
 import xbmcplugin  # noqa: E402
@@ -31,6 +33,13 @@ def _url(**kwargs):
     return BASE + "?" + urlencode(kwargs)
 
 
+def _fmt_date(ts, short=False):
+    try:
+        return time.strftime("%b %d" if short else "%b %d, %Y", time.localtime(ts)).replace(" 0", " ")
+    except Exception:
+        return ""
+
+
 def _enrich_ids(items):
     """Up Next / list items carry tmdb_id + type; pull imdb/tvdb from /metadata
     in ONE call so the library match can key on whatever id Kodi scraped."""
@@ -44,6 +53,7 @@ def _enrich_ids(items):
         if m:
             it["imdb_id"] = m.get("imdb_id")
             it["tvdb_id"] = m.get("tvdb_id")
+            it["next_air_date"] = m.get("next_air_date")
     return items
 
 
@@ -60,9 +70,14 @@ def _render(items):
         # Episode progress — only up-next items carry it; show "N left" when a show
         # is genuinely in progress, right on the label so it reads in a poster view.
         ew, et = it.get("episodes_watched"), it.get("episodes_total")
+        nad = it.get("next_air_date")
+        next_soon = bool(is_tv and nad and nad > time.time())
+
         label = name
         if et and 0 < (ew or 0) < et:
             label = "%s  ·  %d left" % (name, et - (ew or 0))
+        elif next_soon:
+            label = "%s  ·  Next %s" % (name, _fmt_date(nad, short=True))
 
         a = avail.get((it.get("type"), it.get("tmdb_id")))
         li = xbmcgui.ListItem(label=label)
@@ -87,6 +102,8 @@ def _render(items):
         if et:
             info["episode"] = et
             bits.append("%d / %d watched" % (ew or 0, et) + (" · complete" if (ew or 0) >= et else ""))
+        if next_soon:
+            bits.append("Next episode " + _fmt_date(nad))
         if bits:
             info["plot"] = "  ·  ".join(bits)
 
@@ -95,15 +112,27 @@ def _render(items):
             info["playcount"] = 1
 
         li.setInfo("video", info)
-        if a:
+
+        if is_tv:
+            # A show is a FOLDER — click it to open its episodes (Kodi's own episode
+            # view when the show is in your library; otherwise it says it isn't).
+            u = _url(
+                action="show",
+                tmdb_id=it.get("tmdb_id") or "",
+                imdb_id=it.get("imdb_id") or "",
+                tvdb_id=it.get("tvdb_id") or "",
+            )
+            xbmcplugin.addDirectoryItem(HANDLE, u, li, isFolder=True)
+        elif a:
             li.setProperty("IsPlayable", "true")
-            if a.get("kodi_movieid"):
-                url = _url(action="play", movieid=a["kodi_movieid"])
-            else:
-                url = _url(action="play", episodeid=a["kodi_episodeid"])
+            url = (
+                _url(action="play", movieid=a["kodi_movieid"])
+                if a.get("kodi_movieid")
+                else _url(action="play", episodeid=a["kodi_episodeid"])
+            )
             xbmcplugin.addDirectoryItem(HANDLE, url, li, isFolder=False)
         else:
-            # Not on this box — informational only, deliberately not playable.
+            # Movie not on this box — informational only, deliberately not playable.
             xbmcplugin.addDirectoryItem(HANDLE, _url(action="noop"), li, isFolder=False)
     # Let Kodi sort by our order (relevance), and add a couple of sort options.
     xbmcplugin.addSortMethod(HANDLE, xbmcplugin.SORT_METHOD_NONE)
@@ -125,6 +154,26 @@ def _play(params):
         ).get("episodedetails", {})
     path = d.get("file")
     xbmcplugin.setResolvedUrl(HANDLE, bool(path), xbmcgui.ListItem(path=path or ""))
+
+
+def _show(params):
+    """Open a show's episodes. If it's in the local library, hand off to Kodi's own
+    episode view (all its skinning + resume). If not, say so — we never fetch it."""
+    ids = {
+        "imdb": params.get("imdb_id") or None,
+        "tmdb": params.get("tmdb_id") or None,
+        "tvdb": params.get("tvdb_id") or None,
+    }
+    tvshowid = kodi_library.find_show(ids)
+    xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
+    if tvshowid is None:
+        xbmcgui.Dialog().ok(
+            "Sesn",
+            "This show isn't in your Kodi library, so there are no episodes to open here. "
+            "Sesn tracks it, but never fetches what you don't have.",
+        )
+        return
+    xbmc.executebuiltin("ActivateWindow(Videos,videodb://tvshows/titles/%d/,return)" % int(tvshowid))
 
 
 def _section(section):
@@ -196,6 +245,8 @@ def main():
         _lists()
     elif action == "list":
         _list(params)
+    elif action == "show":
+        _show(params)
     elif action == "settings":
         _settings()
     elif action == "disconnect":

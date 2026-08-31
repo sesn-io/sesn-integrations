@@ -74,6 +74,11 @@ def find_movie(ids, index=None):
     return _match(movie_index() if index is None else index, ids)
 
 
+def find_show(ids, index=None):
+    """Resolve a show's ids → its local tvshowid, or None."""
+    return _match(show_index() if index is None else index, ids)
+
+
 def find_episode(show_ids, season, episode, index=None):
     """Resolve an episode by its SHOW's ids + season/episode → episodeid (trap #2)."""
     tvshowid = _match(show_index() if index is None else index, show_ids)
