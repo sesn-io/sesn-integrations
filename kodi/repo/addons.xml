@@ -20,7 +20,7 @@
     </assets>
   </extension>
 </addon>
-<addon id="script.sesn" name="Sesn" version="0.2.6" provider-name="Sesn">
+<addon id="script.sesn" name="Sesn" version="0.2.7" provider-name="Sesn">
   <requires>
     <!-- Kodi 19 Matrix+ (Python 3). getUniqueID / onAVStarted / xbmcvfs all land here. -->
     <import addon="xbmc.python" version="3.0.0"/>
@@ -49,7 +49,7 @@
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>
     </assets>
-    <news>0.2.6 - Browse shows posters (movie content) with artwork + sort options.</news>
+    <news>0.2.7 - Browse shows tracking status, rating, show status and episodes left.</news>
   </extension>
 </addon>
 </addons>
