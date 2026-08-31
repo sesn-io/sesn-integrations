@@ -50,13 +50,22 @@ def _enrich_ids(items):
 def _render(items):
     items = _enrich_ids(list(items or []))
     avail = {(a.get("type"), a.get("tmdb_id")): a for a in kodi_library.available(items)}
+    # "movies" content → a poster/wall view by default in most skins, instead of a
+    # bare text list. Kodi then remembers whatever view you pick, per this folder.
+    xbmcplugin.setContent(HANDLE, "movies")
     for it in items:
         name = it.get("name") or "Untitled"
         a = avail.get((it.get("type"), it.get("tmdb_id")))
-        li = xbmcgui.ListItem(label=("▶ " + name) if a else name)
+        li = xbmcgui.ListItem(label=name)
         poster = it.get("poster")
         if poster:
-            li.setArt({"poster": poster, "thumb": poster})
+            li.setArt({"poster": poster, "thumb": poster, "icon": poster, "fanart": poster})
+        info = {"title": name, "mediatype": "tvshow" if it.get("type") == "tv" else "movie"}
+        if it.get("year"):
+            info["year"] = it["year"]
+        if a:
+            info["playcount"] = 0  # on the box → mark it distinctly + make it playable
+        li.setInfo("video", info)
         if a:
             li.setProperty("IsPlayable", "true")
             if a.get("kodi_movieid"):
@@ -67,7 +76,10 @@ def _render(items):
         else:
             # Not on this box — informational only, deliberately not playable.
             xbmcplugin.addDirectoryItem(HANDLE, _url(action="noop"), li, isFolder=False)
-    xbmcplugin.setContent(HANDLE, "videos")
+    # Let Kodi sort by our order (relevance), and add a couple of sort options.
+    xbmcplugin.addSortMethod(HANDLE, xbmcplugin.SORT_METHOD_NONE)
+    xbmcplugin.addSortMethod(HANDLE, xbmcplugin.SORT_METHOD_LABEL)
+    xbmcplugin.addSortMethod(HANDLE, xbmcplugin.SORT_METHOD_VIDEO_YEAR)
     xbmcplugin.endOfDirectory(HANDLE)
 
 
