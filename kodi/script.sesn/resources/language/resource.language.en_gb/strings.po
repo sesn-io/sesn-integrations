@@ -1,0 +1,61 @@
+# Sesn Kodi addon — English (en_gb)
+msgid ""
+msgstr ""
+"Project-Id-Version: script.sesn\n"
+"Report-Msgid-Bugs-To: support@sesn.io\n"
+"Language: en_GB\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgctxt "#30001"
+msgid "Account"
+msgstr ""
+
+msgctxt "#30002"
+msgid "Scrobbling"
+msgstr ""
+
+msgctxt "#30003"
+msgid "Advanced"
+msgstr ""
+
+msgctxt "#30010"
+msgid "API key (from sesn.io/api-keys)"
+msgstr ""
+
+msgctxt "#30011"
+msgid "Server URL"
+msgstr ""
+
+msgctxt "#30012"
+msgid "Pair this device (enter a code at sesn.io/link)"
+msgstr ""
+
+msgctxt "#30013"
+msgid "[COLOR FF3AC77B]Connected to Sesn[/COLOR] — tap to disconnect"
+msgstr ""
+
+msgctxt "#30020"
+msgid "Scrobble movies"
+msgstr ""
+
+msgctxt "#30021"
+msgid "Scrobble TV episodes"
+msgstr ""
+
+msgctxt "#30022"
+msgid "Show a notification when a watch is logged"
+msgstr ""
+
+msgctxt "#30030"
+msgid "Verbose logging"
+msgstr ""
+
+msgctxt "#30050"
+msgid "Two-way sync"
+msgstr ""
+
+msgctxt "#30051"
+msgid "Mark watched in Kodi from Sesn (writes to your library)"
+msgstr ""
