@@ -54,17 +54,46 @@ def _render(items):
     # bare text list. Kodi then remembers whatever view you pick, per this folder.
     xbmcplugin.setContent(HANDLE, "movies")
     for it in items:
+        is_tv = it.get("type") == "tv"
         name = it.get("name") or "Untitled"
+
+        # Episode progress — only up-next items carry it; show "N left" when a show
+        # is genuinely in progress, right on the label so it reads in a poster view.
+        ew, et = it.get("episodes_watched"), it.get("episodes_total")
+        label = name
+        if et and 0 < (ew or 0) < et:
+            label = "%s  ·  %d left" % (name, et - (ew or 0))
+
         a = avail.get((it.get("type"), it.get("tmdb_id")))
-        li = xbmcgui.ListItem(label=name)
+        li = xbmcgui.ListItem(label=label)
         poster = it.get("poster")
         if poster:
             li.setArt({"poster": poster, "thumb": poster, "icon": poster, "fanart": poster})
-        info = {"title": name, "mediatype": "tvshow" if it.get("type") == "tv" else "movie"}
+
+        info = {"title": label, "mediatype": "tvshow" if is_tv else "movie"}
         if it.get("year"):
             info["year"] = it["year"]
-        if a:
-            info["playcount"] = 0  # on the box → mark it distinctly + make it playable
+        if it.get("vote_average") is not None:
+            info["rating"] = it["vote_average"]
+
+        # Plot line = show status + your tracking status + progress, so the info
+        # panel says what Sesn's card would (Returning / Ended, watching, N/M watched).
+        bits = []
+        ps = it.get("production_status")
+        if isinstance(ps, dict) and ps.get("label"):
+            bits.append(ps["label"])
+        if it.get("status"):
+            bits.append("You: %s" % it["status"])
+        if et:
+            info["episode"] = et
+            bits.append("%d / %d watched" % (ew or 0, et) + (" · complete" if (ew or 0) >= et else ""))
+        if bits:
+            info["plot"] = "  ·  ".join(bits)
+
+        # Watched checkmark on the poster when you've finished it.
+        if it.get("status") == "watched" or (et and (ew or 0) >= et):
+            info["playcount"] = 1
+
         li.setInfo("video", info)
         if a:
             li.setProperty("IsPlayable", "true")
