@@ -87,8 +87,10 @@ def _play(params):
 
 
 def _section(section):
+    # /api/v1/up-next returns each section at the TOP LEVEL (ready / planned /
+    # airing_soon / …), NOT under a "sections" object.
     data = sesn_api.get_json("/api/v1/up-next") or {}
-    _render((data.get("sections") or {}).get(section) or [])
+    _render(data.get(section) or [])
 
 
 def _lists():
