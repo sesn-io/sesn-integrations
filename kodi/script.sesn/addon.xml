@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.sesn" name="Sesn" version="0.2.7" provider-name="Sesn">
+<addon id="script.sesn" name="Sesn" version="0.2.8" provider-name="Sesn">
   <requires>
     <!-- Kodi 19 Matrix+ (Python 3). getUniqueID / onAVStarted / xbmcvfs all land here. -->
     <import addon="xbmc.python" version="3.0.0"/>
@@ -28,6 +28,6 @@
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>
     </assets>
-    <news>0.2.7 - Browse shows tracking status, rating, show status and episodes left.</news>
+    <news>0.2.8 - Shows open their episodes; next air date shown for returning shows.</news>
   </extension>
 </addon>
