@@ -21,7 +21,7 @@ def _display_url(url):
 
 
 def run():
-    start = sesn_api.post_json("/api/v1/link/new", {"device_name": "Kodi"})
+    start = sesn_api.post_json("/api/v1/link/new", {"device_name": "Kodi", "provider": "kodi"})
     if not start or not start.get("ok"):
         xbmcgui.Dialog().notification(
             "Sesn", "Couldn't start pairing — check your connection", xbmcgui.NOTIFICATION_ERROR

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.sesn" name="Sesn" version="0.2.8" provider-name="Sesn">
+<addon id="script.sesn" name="Sesn" version="0.2.9" provider-name="Sesn">
   <requires>
     <!-- Kodi 19 Matrix+ (Python 3). getUniqueID / onAVStarted / xbmcvfs all land here. -->
     <import addon="xbmc.python" version="3.0.0"/>
@@ -23,11 +23,11 @@
     <platform>all</platform>
     <license>MIT</license>
     <source>https://github.com/sesn-io/sesn-integrations</source>
-    <website>https://sesn.io/kodi</website>
+    <website>https://sesn.io/connections/kodi</website>
     <assets>
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>
     </assets>
-    <news>0.2.8 - Shows open their episodes; next air date shown for returning shows.</news>
+    <news>0.2.9 - Correct parent-show identifiers for episodes; register Kodi pairing in Connections; validate scrobble acknowledgements.</news>
   </extension>
 </addon>

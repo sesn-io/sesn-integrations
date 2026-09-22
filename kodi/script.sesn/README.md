@@ -1,67 +1,49 @@
 # Sesn for Kodi (`script.sesn`)
 
-Scrobble what you watch in Kodi to your [Sesn](https://sesn.io) account — the
-simple, private TV / film / anime tracker. Sends only the title/ids, position
-and your key; never your library or file paths. **Live TV is never scrobbled.**
+## Version 0.2.9 — 21 September 2026
 
-Requires **Kodi 19 (Matrix) or newer** (Python 3, `xbmc.python` 3.0.0). Pure
-Python — runs the same on Windows, Linux, Android/Fire TV and LibreELEC /
-CoreELEC / OSMC.
+Parent-show identity, explicit Kodi pairing metadata and checked API responses
+are included in the 0.2.9 ZIP. Eleven offline tests pass; installed-device
+acceptance remains. The notification says an event was sent to Sesn, not that a
+queued watch has already been saved. Manage pairing at Connections → Kodi, or
+find and revoke an older unlabelled key under API keys and app sessions.
 
-## Install
 
-1. In Kodi: **Settings → System → Add-ons → Unknown sources** → enable.
-2. **Settings → Add-ons → Install from zip file** → pick `script.sesn-x.y.z.zip`.
-   (Or add the Sesn repository zip first, for automatic updates.)
-3. The service starts automatically.
+Log completed Kodi playback to your [Sesn](https://sesn.io) account and browse your
+Watchlist, Up Next and lists. Requires **Kodi 19 (Matrix) or newer** with Python 3.
+Live/PVR TV and music are never logged.
 
-## Connect your account (v0.1 — paste a key)
+## Install and pair
 
-1. On the web, go to **sesn.io/api-keys** and create a **scrobble** key
-   (`sesn_…`). It's shown once.
-2. In Kodi: **Add-ons → Sesn → Configure** (or Settings) → **Account** → paste the
-   key into **API key**.
+1. Select the Kodi profile belonging to the person whose watches you want to log.
+2. Follow the [repository installation guide](../README.md) for automatic updates,
+   or install the current add-on ZIP through Kodi's **Install from zip file**.
+3. Open **Sesn → Pair with a code**. Confirm the displayed code at
+   [sesn.io/link](https://sesn.io/link) while signed in to the intended Sesn account.
+4. Play a known film or episode and check the watch in Sesn after finishing it.
 
-A device-code pairing flow (enter a short code at `sesn.io/activate`, nothing
-typed on the remote) is planned to replace the paste step.
+Manual key entry is an advanced fallback: create a key at
+[sesn.io/api-keys](https://sesn.io/api-keys), then enter it under the add-on's
+**Advanced → API key** setting. Pair separately in each Kodi profile on a shared box.
 
-## What it does
+## Behavior and settings
 
-- Sends a **start** when playback begins, **pause**/**resume** as you pause, and a
-  **stop** with your final progress when it ends. Sesn logs the watch only when
-  you finish (its 80% completion rule) — the addon holds no threshold itself.
-- Reads stable ids (`getUniqueID` — imdb/tmdb/tvdb) when Kodi has them, falling
-  back to title + year (+ show/season/episode) when it doesn't.
-- Queues events offline and retries them, so a reboot or dropped connection
-  doesn't lose a watch.
+- Playback sends start, pause/resume and stop events. Sesn applies its completion
+  rule (80%); partially watched playback does not become a completed watch.
+- Movie IDs come from the playing movie. Episode references use the parent show's
+  library IDs and season/episode numbers. Streams without a known library parent
+  fall back to the show title and episode numbers, never the episode's own IDs.
+- Failed sends are queued on the device and retried.
+- **Scrobbling** controls movie/episode logging and confirmation notifications.
+- **Two-way sync** is the setting label for optional sync from Sesn, off by default.
+  It marks matching local items watched and copies the associated ratings from new
+  watched records. Later edits to existing ratings are not continuously reconciled.
+- **Account → Disconnect** forgets this profile's key. Revoke access from the
+  Sesn device/key page when you want the server to reject that credential as well.
 
-## Settings
+The add-on sends identifying metadata, playback progress and its credential, never
+media files or local file paths. Playback belongs to the account paired in the
+active Kodi profile; the add-on cannot identify separate viewers within one profile.
 
-- **Account:** API key, server URL (advanced).
-- **Scrobbling:** scrobble movies / TV, notification on log.
-- **Advanced:** verbose logging (for diagnosing; off by default).
-
-## Notes
-
-- **No live/PVR TV** and no music — only movies and episodes.
-- A shared Kodi box scrobbles to whoever set up the key; Kodi exposes no
-  per-viewer identity to gate on.
-- Nothing but ids, title/runtime, position and your key ever leaves the device.
-
-## Layout
-
-```
-script.sesn/
-  addon.xml            service + settings-launcher extension points
-  service.py           resident scrobbler (the loop)
-  default.py           opens settings when you "run" the addon
-  resources/
-    settings.xml       account + scrobbling + advanced
-    lib/
-      sesn_api.py      POST to /api/v1/scrobble
-      scrobble_queue.py  offline queue + retry
-      monitor.py       xbmc.Player/Monitor -> scrobble events
-    language/…/strings.po
-```
-
+Website setup: [Sesn Connections → Kodi](https://sesn.io/connections/kodi).
 Support: **support@sesn.io**.

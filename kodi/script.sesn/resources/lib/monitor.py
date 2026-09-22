@@ -17,6 +17,7 @@ import xbmcaddon
 import xbmcgui
 
 import scrobble_queue
+import kodi_library
 
 ADDON = xbmcaddon.Addon()
 
@@ -39,6 +40,28 @@ def _uid(tag, kind):
 
 def _as_id(v):
     return int(v) if v.isdigit() else v
+
+
+def _parent_show(tag):
+    """Read the parent series locally; never reuse the playing episode's IDs."""
+    try:
+        episode_id = tag.getDbId()
+        if not isinstance(episode_id, int) or episode_id <= 0:
+            return {}
+        episode = kodi_library.rpc('VideoLibrary.GetEpisodeDetails', {
+            'episodeid': episode_id, 'properties': ['tvshowid'],
+        }).get('episodedetails', {})
+        show_id = episode.get('tvshowid')
+        if not isinstance(show_id, int) or show_id <= 0:
+            return {}
+        show = kodi_library.rpc('VideoLibrary.GetTVShowDetails', {
+            'tvshowid': show_id, 'properties': ['title', 'year', 'uniqueid'],
+        }).get('tvshowdetails', {})
+        return show if isinstance(show, dict) else {}
+    except Exception:
+        # Plugin streams may have no library item. Title/season/episode is safer
+        # than using IDs belonging to a different level of the catalogue.
+        return {}
 
 
 def _percent(player):
@@ -88,14 +111,20 @@ class SesnPlayer(xbmc.Player):
                 "season": season,
                 "episode": episode,
             }
-            # Show-level ids aid resolution; the server resolves by series, and an
-            # episode's own id is not the series id (same rule as the webhook).
-            if tvdb:
-                ref["tvdb_id"] = _as_id(tvdb)
-            if tmdb:
-                ref["tmdb_id"] = _as_id(tmdb)
-            if imdb:
-                ref["imdb_id"] = imdb
+            show = _parent_show(tag) if mediatype == "episode" else {}
+            if show.get('title'):
+                ref['title'] = show['title']
+            if show.get('year'):
+                ref['year'] = show['year']
+            ids = show.get('uniqueid') or {}
+            if isinstance(ids, dict):
+                for kind in ('tmdb', 'tvdb'):
+                    value = str(ids.get(kind) or '').strip()
+                    if value.isdigit() and int(value) > 0:
+                        ref[kind + '_id'] = int(value)
+                imdb = str(ids.get('imdb') or '').strip()
+                if imdb.startswith('tt') and imdb[2:].isdigit():
+                    ref['imdb_id'] = imdb
             return ref
 
         if not ADDON.getSettingBool("scrobble_movies"):
@@ -169,4 +198,5 @@ class SesnPlayer(xbmc.Player):
                 and payload.get("action") == "stop"
                 and (payload.get("progress") or 0) >= NOTIFY_AT
             ):
-                _notify("Logged %s" % payload.get("title", "this title"))
+                # A queue acknowledgement is not a saved-watch receipt.
+                _notify("Sent %s to Sesn" % payload.get("title", "this title"))

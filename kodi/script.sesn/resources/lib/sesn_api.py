@@ -38,7 +38,7 @@ def is_configured():
 
 
 def send(payload):
-    """POST one scrobble event. Returns True on a 2xx, False otherwise.
+    """POST one event. True means Sesn accepted it, not necessarily saved it.
 
     Never raises — the caller (queue) treats False as "retry later". The API key
     rides the X-Api-Key header, never a query string or a log line.
@@ -57,9 +57,9 @@ def send(payload):
             data=json.dumps(payload),
             timeout=TIMEOUT,
         )
-        ok = 200 <= resp.status_code < 300
-        # Log the whole payload (minus the key) + the server's reply, so a "did it
-        # match?" is answerable from the log instead of guessed.
+        body = resp.json() if 200 <= resp.status_code < 300 else None
+        ok = isinstance(body, dict) and body.get("ok") is True
+        # Log bounded event metadata and acceptance, never raw response bodies.
         _debug(
             "scrobble %s type=%s title=%r year=%s tmdb=%s imdb=%s tvdb=%s S%sE%s progress=%s -> %s %s"
             % (
@@ -74,14 +74,14 @@ def send(payload):
                 payload.get("episode"),
                 payload.get("progress"),
                 resp.status_code,
-                (resp.text or "")[:200],
+                "accepted" if ok else "not accepted",
             )
         )
         if not ok:
             _log("scrobble failed: HTTP %s" % resp.status_code, xbmc.LOGWARNING)
         return ok
     except Exception as err:  # network down, DNS, timeout — queue and retry
-        _debug("scrobble error: %s" % err)
+        _debug("scrobble error: %s" % type(err).__name__)
         return False
 
 
