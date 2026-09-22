@@ -1,5 +1,13 @@
 # Sesn integrations
 
+## Kodi 0.2.9 — 21 September 2026
+
+Kodi 0.2.9 includes parent-series episode IDs, explicit Kodi pairing
+registration, validated scrobble acknowledgements and accurate queued-event
+feedback. Eleven offline tests pass. `python3 kodi/build_release.py` rebuilds the
+archive, repository index and checksum. Real-device acceptance remains.
+
+
 Open-source clients that connect **[Sesn](https://sesn.io)** — a simple, private tracker for TV, film
 and anime — to the apps you already watch in.
 
@@ -9,9 +17,14 @@ device.
 
 | Integration | What it does | Status |
 |---|---|---|
-| **[Kodi add-on](kodi/)** | Scrobble what you watch to Sesn, two-way watched/ratings sync, browse your lists on the box | ✅ available |
+| **[Kodi add-on](kodi/)** | Log playback, browse lists and Up Next, optionally import newly watched state from Sesn | ✅ available |
 | Browser extension | Log what you watch on streaming sites (Netflix first) | 🚧 planned |
-| Stremio add-on | Scrobble + your lists as catalogs | 🚧 planned |
+| **[Stremio / Nuvio catalogue add-on](https://sesn.io/connections/stremio)** | Browse Watchlist and custom lists; metadata only, no streams or playback logging | Available as a hosted Sesn add-on; install with a personal manifest URL |
+
+## Installation
+
+- **Kodi:** download the [repository ZIP](https://github.com/sesn-io/sesn-integrations/raw/main/kodi/repository.sesn-1.0.0.zip), install it in Kodi, then install Sesn from the added repository. Follow the [Kodi guide](kodi/) and pair your account using the code shown in the add-on.
+- **Stremio / Nuvio:** open [Sesn Connections](https://sesn.io/connections/stremio), create a credential and install using its personal manifest URL. There is no ZIP or separate GitHub client to download.
 
 ## Privacy
 
