@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Sesn</title>
+</head>
+<body>
+    <div id="SesnConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <h1>Sesn</h1>
+                <p>Securely track this Jellyfin viewer on Sesn. Other Jellyfin users are ignored.</p>
+                <form id="SesnConfigForm">
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="JellyfinUserId">Jellyfin viewer</label>
+                        <select is="emby-select" id="JellyfinUserId" class="emby-select-withcolor"></select>
+                        <div class="fieldDescription">Only this local viewer is sent to the paired Sesn account.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="Enabled" type="checkbox" is="emby-checkbox">
+                            <span>Track playback</span>
+                        </label>
+                        <div class="fieldDescription">Turn this off to stop all Sesn event delivery immediately.</div>
+                    </div>
+                    <div id="PairingPanel" style="margin:1.25em 0;padding:1em;border:1px solid rgba(255,255,255,.18);border-radius:.4em">
+                        <div id="PairingStatus">Loading connection status…</div>
+                        <div id="PairingCodePanel" style="display:none;margin-top:1em">
+                            <p>On a signed-in device, open <a id="VerificationUrl" href="https://sesn.io/link" target="_blank" rel="noopener">sesn.io/link</a> and enter:</p>
+                            <p id="UserCode" style="font-size:2em;font-weight:700;letter-spacing:.12em"></p>
+                        </div>
+                        <button is="emby-button" type="button" class="raised block" id="PairButton"><span>Connect to Sesn</span></button>
+                        <button is="emby-button" type="button" class="raised block" id="DisconnectButton" style="display:none"><span>Disconnect</span></button>
+                    </div>
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button"><span>Save viewer settings</span></button>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                var pluginId = 'd214481e-2ec6-4b17-91db-b45b705a06aa';
+                var timer;
+                var page = document.querySelector('#SesnConfigPage');
+
+                function selectedName() {
+                    var select = document.querySelector('#JellyfinUserId');
+                    return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
+                }
+
+                function paint(config) {
+                    var status = document.querySelector('#PairingStatus');
+                    var codePanel = document.querySelector('#PairingCodePanel');
+                    var pair = document.querySelector('#PairButton');
+                    var disconnect = document.querySelector('#DisconnectButton');
+                    document.querySelector('#Enabled').checked = config.Enabled !== false;
+                    if (config.JellyfinUserId) document.querySelector('#JellyfinUserId').value = config.JellyfinUserId;
+                    var busy = config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting';
+                    var hasCredential = !!config.ApiKey;
+                    codePanel.style.display = config.PairingStatus === 'pending' ? 'block' : 'none';
+                    disconnect.style.display = hasCredential ? 'block' : 'none';
+                    pair.style.display = hasCredential ? 'none' : 'block';
+                    pair.disabled = busy;
+                    disconnect.disabled = busy;
+                    if (config.PairingStatus === 'connected') status.textContent = 'Connected to Sesn';
+                    else if (config.PairingStatus === 'pending') status.textContent = 'Waiting for you to approve this Jellyfin server';
+                    else if (config.PairingStatus === 'starting') status.textContent = 'Creating a secure pairing code…';
+                    else if (config.PairingStatus === 'disconnecting') status.textContent = 'Revoking this connection…';
+                    else if (config.PairingStatus === 'expired') status.textContent = 'That code expired. Start again.';
+                    else if (config.PairingStatus === 'error') status.textContent = 'Sesn could not start pairing. Try again.';
+                    else status.textContent = 'Not connected';
+                    document.querySelector('#UserCode').textContent = config.UserCode || '';
+                    var link = document.querySelector('#VerificationUrl');
+                    link.href = config.VerificationUrl || 'https://sesn.io/link';
+                }
+
+                function refresh() {
+                    return ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        paint(config);
+                        if (config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting') {
+                            clearTimeout(timer);
+                            timer = setTimeout(refresh, 3000);
+                        }
+                    });
+                }
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    Promise.all([ApiClient.getUsers(), ApiClient.getPluginConfiguration(pluginId)]).then(function (values) {
+                        var users = values[0];
+                        var config = values[1];
+                        var select = document.querySelector('#JellyfinUserId');
+                        select.innerHTML = '';
+                        users.forEach(function (user) {
+                            var option = document.createElement('option');
+                            option.value = user.Id;
+                            option.textContent = user.Name;
+                            select.appendChild(option);
+                        });
+                        if (config.JellyfinUserId) select.value = config.JellyfinUserId;
+                        paint(config);
+                        Dashboard.hideLoadingMsg();
+                        if (config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting') timer = setTimeout(refresh, 3000);
+                    });
+                });
+
+                page.addEventListener('pagehide', function () { clearTimeout(timer); });
+
+                document.querySelector('#PairButton').addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.JellyfinUserId = document.querySelector('#JellyfinUserId').value;
+                        config.JellyfinUserName = selectedName();
+                        config.Enabled = document.querySelector('#Enabled').checked;
+                        config.DisconnectRequested = false;
+                        config.PairingRequested = true;
+                        config.PairingStatus = 'starting';
+                        return ApiClient.updatePluginConfiguration(pluginId, config);
+                    }).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        return refresh();
+                    });
+                });
+
+                document.querySelector('#DisconnectButton').addEventListener('click', function () {
+                    if (!confirm('Disconnect this Jellyfin server from Sesn?')) return;
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.DisconnectRequested = true;
+                        config.PairingRequested = false;
+                        config.PairingStatus = 'disconnecting';
+                        return ApiClient.updatePluginConfiguration(pluginId, config);
+                    }).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        return refresh();
+                    });
+                });
+
+                document.querySelector('#SesnConfigForm').addEventListener('submit', function (event) {
+                    event.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.JellyfinUserId = document.querySelector('#JellyfinUserId').value;
+                        config.JellyfinUserName = selectedName();
+                        config.Enabled = document.querySelector('#Enabled').checked;
+                        return ApiClient.updatePluginConfiguration(pluginId, config);
+                    }).then(Dashboard.processPluginConfigurationUpdateResult);
+                    return false;
+                });
+            }());
+        </script>
+    </div>
+</body>
+</html>

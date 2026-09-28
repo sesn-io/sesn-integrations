@@ -1,0 +1,20 @@
+---
+name: "Sesn"
+guid: "d214481e-2ec6-4b17-91db-b45b705a06aa"
+version: "0.2.1.0"
+targetAbi: "12.1.0.0"
+framework: "net10.0"
+overview: "Track Jellyfin playback securely on Sesn."
+description: >
+  Pair a Jellyfin viewer with Sesn using a short device code, then send
+  playback start, progress, pause, stop, and completion events without sharing
+  a Sesn password with the media server.
+category: "General"
+owner: "Object64"
+artifacts:
+  - "Sesn.Jellyfin.dll"
+  - "meta.json"
+  - "icon-512.png"
+changelog: >
+  Initial native plugin with secure device pairing, explicit viewer mapping,
+  playback lifecycle tracking, and server-side credential revocation.

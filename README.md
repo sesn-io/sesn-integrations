@@ -18,12 +18,14 @@ device.
 | Integration | What it does | Status |
 |---|---|---|
 | **[Kodi add-on](kodi/)** | Log playback, browse lists and Up Next, optionally import newly watched state from Sesn | ✅ available |
+| **[Jellyfin plugin](jellyfin/)** | Watching Now and completed watches for your Jellyfin viewer, paired with a short code | ✅ available from the Sesn plugin repository |
 | Browser extension | Log what you watch on streaming sites (Netflix first) | 🚧 planned |
 | **[Stremio / Nuvio catalogue add-on](https://sesn.io/connections/stremio)** | Browse Watchlist and custom lists; metadata only, no streams or playback logging | Available as a hosted Sesn add-on; install with a personal manifest URL |
 
 ## Installation
 
 - **Kodi:** download the [repository ZIP](https://github.com/sesn-io/sesn-integrations/raw/main/kodi/repository.sesn-1.0.0.zip), install it in Kodi, then install Sesn from the added repository. Follow the [Kodi guide](kodi/) and pair your account using the code shown in the add-on.
+- **Jellyfin:** in Dashboard → Plugins → Repositories add `https://sesn.io/downloads/jellyfin/manifest.json`, install Sesn from the catalogue and pair it with the code it shows. See the [Jellyfin guide](jellyfin/).
 - **Stremio / Nuvio:** open [Sesn Connections](https://sesn.io/connections/stremio), create a credential and install using its personal manifest URL. There is no ZIP or separate GitHub client to download.
 
 ## Privacy
