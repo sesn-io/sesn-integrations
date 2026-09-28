@@ -4,11 +4,10 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname);
-const repo = resolve(root, '../..');
 const dotnet = process.env.DOTNET ?? 'dotnet';
 const artifacts = resolve(root, 'artifacts');
 const project = resolve(root, 'Sesn.Jellyfin/Sesn.Jellyfin.csproj');
-const icon = resolve(repo, 'public/icon-512.png');
+const icon = resolve(root, 'icon-512.png');
 const timestamp = new Date().toISOString();
 const builds = [
   { jellyfin: '10.11.11', framework: 'net9.0', extensions: '9.0.11', version: '0.1.11.0', abi: '10.11.0.0' },
