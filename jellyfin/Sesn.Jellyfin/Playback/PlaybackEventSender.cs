@@ -7,7 +7,7 @@ using Sesn.Jellyfin.Services;
 
 namespace Sesn.Jellyfin.Playback;
 
-/// <summary>Filters Jellyfin events to the mapped viewer and creates the Sesn payload.</summary>
+/// <summary>Filters Jellyfin events to tracked viewers and creates the Sesn payload.</summary>
 public sealed class PlaybackEventSender
 {
     private readonly IServerApplicationHost _applicationHost;
@@ -22,31 +22,34 @@ public sealed class PlaybackEventSender
         _logger = logger;
     }
 
-    /// <summary>Sends one event for the configured local user and skips all other users.</summary>
+    /// <summary>
+    /// Sends the event for each tracked local user. Household mode tracks the users
+    /// Sesn lists; otherwise only the single selected viewer. Everyone else is skipped
+    /// here, so an untracked user's playback never leaves the server.
+    /// </summary>
     public async Task SendAsync(string notificationType, PlaybackProgressEventArgs eventArgs, bool? playedToCompletion = null)
     {
         var config = Plugin.Instance?.Configuration;
-        if (config is null || !config.Enabled || string.IsNullOrWhiteSpace(config.ApiKey) ||
-            string.IsNullOrWhiteSpace(config.JellyfinUserId) || eventArgs.Item is null || eventArgs.Item.IsThemeMedia)
+        if (config is null || !config.Enabled || string.IsNullOrWhiteSpace(config.ApiKey) || eventArgs.Item is null || eventArgs.Item.IsThemeMedia)
         {
             return;
         }
 
-        var mappedUser = eventArgs.Users.FirstOrDefault(user => IdEquals(user.Id.ToString(), config.JellyfinUserId));
-        if (mappedUser is null)
+        var tracked = config.Household
+            ? eventArgs.Users.Where(user => config.TrackedViewerIds.Contains(ViewerSyncService.NormalizeId(user.Id.ToString()), StringComparer.Ordinal))
+            : eventArgs.Users.Where(user => !string.IsNullOrWhiteSpace(config.JellyfinUserId) && IdEquals(user.Id.ToString(), config.JellyfinUserId));
+        foreach (var user in tracked.ToList())
         {
-            return;
-        }
-
-        var payload = BuildPayload(notificationType, eventArgs.Item, eventArgs, mappedUser.Id.ToString(), mappedUser.Username, playedToCompletion);
-        try
-        {
-            await _client.SendPlaybackAsync(config, payload, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            // Jellyfin playback must never fail because Sesn is unavailable.
-            _logger.LogWarning(exception, "Could not deliver {NotificationType} to Sesn", notificationType);
+            var payload = BuildPayload(notificationType, eventArgs.Item, eventArgs, user.Id.ToString(), user.Username, playedToCompletion);
+            try
+            {
+                await _client.SendPlaybackAsync(config, payload, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                // Jellyfin playback must never fail because Sesn is unavailable.
+                _logger.LogWarning(exception, "Could not deliver {NotificationType} to Sesn", notificationType);
+            }
         }
     }
 

@@ -64,6 +64,9 @@ public sealed class PairingService : BackgroundService
             config.DisconnectRequested = false;
             config.PairingRequested = false;
             config.ApiKey = null;
+            config.Household = false;
+            config.TrackedViewerIds = [];
+            config.ViewersSyncedAt = 0;
             config.DeviceCode = null;
             config.UserCode = null;
             config.VerificationUrl = null;
@@ -128,6 +131,9 @@ public sealed class PairingService : BackgroundService
             config.ApiKey = result.ApiKey;
             config.DeviceCode = null;
             config.PairingStatus = "connected";
+            config.Household = false;
+            config.TrackedViewerIds = [];
+            config.ViewersSyncedAt = 0;
             plugin.SaveConfiguration();
             return;
         }

@@ -9,12 +9,16 @@
         <div data-role="content">
             <div class="content-primary">
                 <h1>Sesn</h1>
-                <p>Securely track this Jellyfin viewer on Sesn. Other Jellyfin users are ignored.</p>
+                <p>Securely track Jellyfin playback on Sesn. Only users you choose are sent; everyone else stays on this server.</p>
                 <form id="SesnConfigForm">
-                    <div class="selectContainer">
+                    <div id="HouseholdNote" style="display:none;margin:1em 0;padding:1em;border:1px solid rgba(255,255,255,.18);border-radius:.4em">
+                        <p style="margin-top:0"><strong>Everyone on this server is set up on Sesn.</strong> <span id="TrackedCount"></span></p>
+                        <p style="margin-bottom:0">Choose who is tracked, add a child account or invite someone at <a href="https://sesn.io/connections/jellyfin" target="_blank" rel="noopener">sesn.io/connections/jellyfin</a>. Changes reach this server within five minutes.</p>
+                    </div>
+                    <div class="selectContainer" id="ViewerContainer">
                         <label class="selectLabel" for="JellyfinUserId">Jellyfin viewer</label>
                         <select is="emby-select" id="JellyfinUserId" class="emby-select-withcolor"></select>
-                        <div class="fieldDescription">Only this local viewer is sent to the paired Sesn account.</div>
+                        <div class="fieldDescription">Only this local viewer is sent to the paired Sesn account. To track several people, choose “Set up for everyone in my home” on sesn.io after connecting.</div>
                     </div>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label class="emby-checkbox-label">
@@ -57,6 +61,11 @@
                     var busy = config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting';
                     var hasCredential = !!config.ApiKey;
                     codePanel.style.display = config.PairingStatus === 'pending' ? 'block' : 'none';
+                    var household = !!config.Household && hasCredential;
+                    document.querySelector('#HouseholdNote').style.display = household ? 'block' : 'none';
+                    document.querySelector('#ViewerContainer').style.display = household ? 'none' : 'block';
+                    var tracked = (config.TrackedViewerIds || []).length;
+                    document.querySelector('#TrackedCount').textContent = tracked === 1 ? '1 user is tracked.' : tracked + ' users are tracked.';
                     disconnect.style.display = hasCredential ? 'block' : 'none';
                     pair.style.display = hasCredential ? 'none' : 'block';
                     pair.disabled = busy;

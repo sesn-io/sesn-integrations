@@ -71,6 +71,36 @@ public sealed class SesnApiClient
         return true;
     }
 
+    /// <summary>
+    /// Reports this server's local users so the owner can map them on sesn.io, and
+    /// returns which of them Sesn accepts playback for. Unlisted users never leave the server.
+    /// </summary>
+    public async Task<ViewerReport?> ReportViewersAsync(
+        PluginConfiguration config, string serverId, string serverName, IEnumerable<(string Id, string Name)> viewers, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(config, "/api/v1/connections/viewers"))
+        {
+            Content = JsonContent.Create(
+                new
+                {
+                    provider = "jellyfin",
+                    server_id = serverId,
+                    server_name = serverName,
+                    viewers = viewers.Take(100).Select(viewer => new { id = viewer.Id, name = viewer.Name }),
+                },
+                options: JsonOptions),
+        };
+        request.Headers.TryAddWithoutValidation("X-Api-Key", config.ApiKey);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Sesn viewer report returned HTTP {StatusCode}", (int)response.StatusCode);
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<ViewerReport>(JsonOptions, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Revokes the installation credential at Sesn.</summary>
     public async Task<bool> RevokeAsync(PluginConfiguration config, CancellationToken cancellationToken)
     {
@@ -109,3 +139,6 @@ public sealed record LinkStartResponse(
 public sealed record LinkPollResponse(
     string Status,
     [property: System.Text.Json.Serialization.JsonPropertyName("api_key")] string? ApiKey);
+
+/// <summary>Response from the viewer report endpoint.</summary>
+public sealed record ViewerReport(bool Household, string[]? Tracked);

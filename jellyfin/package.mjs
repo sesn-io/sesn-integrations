@@ -10,9 +10,9 @@ const project = resolve(root, 'Sesn.Jellyfin/Sesn.Jellyfin.csproj');
 const icon = resolve(root, 'icon-512.png');
 const timestamp = new Date().toISOString();
 const builds = [
-  { jellyfin: '10.11.11', framework: 'net9.0', extensions: '9.0.11', version: '0.1.11.0', abi: '10.11.0.0' },
-  { jellyfin: '12.0.0', framework: 'net10.0', extensions: '10.0.11', version: '0.2.0.0', abi: '12.0.0.0' },
-  { jellyfin: '12.1.0', framework: 'net10.0', extensions: '10.0.11', version: '0.2.1.0', abi: '12.1.0.0' },
+  { jellyfin: '10.11.11', framework: 'net9.0', extensions: '9.0.11', version: '0.3.0.0', abi: '10.11.0.0' },
+  { jellyfin: '12.0.0', framework: 'net10.0', extensions: '10.0.11', version: '0.3.1.0', abi: '12.0.0.0' },
+  { jellyfin: '12.1.0', framework: 'net10.0', extensions: '10.0.11', version: '0.3.2.0', abi: '12.1.0.0' },
 ];
 
 mkdirSync(artifacts, { recursive: true });
@@ -35,7 +35,7 @@ for (const build of builds) {
   const meta = resolve(buildRoot, 'meta.json');
   writeFileSync(meta, `${JSON.stringify({
     category: 'General',
-    changelog: 'Secure pairing, explicit viewer mapping, playback lifecycle tracking, and credential revocation.',
+    changelog: 'Household mapping: every Jellyfin user can be routed to their own Sesn account from sesn.io; untracked users never leave the server.',
     description: 'Securely sync Jellyfin playback and completed watches with Sesn. Other Jellyfin users are ignored unless explicitly mapped.',
     guid: 'd214481e-2ec6-4b17-91db-b45b705a06aa',
     name: 'Sesn',
@@ -57,7 +57,7 @@ for (const build of builds) {
   const checksum = createHash('md5').update(readFileSync(zip)).digest('hex');
   versions.push({
     version: build.version,
-    changelog: `Native build for Jellyfin ${build.jellyfin}.`,
+    changelog: `Household mapping for Jellyfin ${build.jellyfin}: track several people, each in their own Sesn account.`,
     targetAbi: build.abi,
     sourceUrl: `https://sesn.io/downloads/jellyfin/${filename}`,
     checksum,

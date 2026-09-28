@@ -52,6 +52,15 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the most recent successful delivery time.</summary>
     public DateTime? LastDeliveredAtUtc { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether Sesn routes this server's users by household mapping.</summary>
+    public bool Household { get; set; }
+
+    /// <summary>Gets or sets the local user ids (lower-case, no dashes) Sesn accepts playback for.</summary>
+    public string[] TrackedViewerIds { get; set; } = [];
+
+    /// <summary>Gets or sets the Unix time the user list was last reported to Sesn.</summary>
+    public long ViewersSyncedAt { get; set; }
+
     /// <summary>Gets or sets a safe status message; response payloads and secrets are never retained.</summary>
     public string? LastDeliveryStatus { get; set; }
 }
