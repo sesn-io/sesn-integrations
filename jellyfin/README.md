@@ -4,22 +4,30 @@ Native Jellyfin server plugin by Object64 for securely sending a mapped viewer's
 playback lifecycle to Sesn. Separate packages cover Jellyfin 10.11, 12.0 and
 12.1 with their required .NET runtimes.
 
-## Current first release
+## What it does
 
-- Enumerates local Jellyfin viewers in the plugin settings page.
-- Sends events only for the explicitly selected viewer; every other local user
-  is ignored.
+- Reports the users on your Jellyfin server to Sesn, so you can choose on
+  sesn.io who each one is.
+- In a household setup, sends events only for the people you track; everyone
+  else is filtered out on your own server. With a single viewer selected, only
+  that viewer is sent.
 - Pairs with Sesn using a short code, so no Sesn password is entered or stored
   on the Jellyfin server.
 - Sends start, progress, pause, stop, and completion events.
 - Revokes the Sesn credential server-side when disconnected or replaced.
 - Never interrupts Jellyfin playback when Sesn is unavailable.
 
-The household mapping wizard (owner plus four managed or independent members)
-will extend this installation model. The initial build intentionally supports
-one explicit owner mapping rather than silently attributing other users.
+A household is the owner plus up to four other people. Each person's plays go
+to their own Sesn account, and the owner never sees what anyone else watched.
 
 ## Install
+
+**Easiest:** open <https://sesn.io/connections/jellyfin>, enter your Jellyfin
+address and an API key (Dashboard → API Keys), and confirm the restart. Your
+browser adds this plugin, restarts Jellyfin once and connects it. The key is
+used in your browser and is not sent to Sesn.
+
+**By hand:**
 
 1. In Jellyfin, open Dashboard → Plugins → Repositories and add a repository
    named **Sesn** with the URL `https://sesn.io/downloads/jellyfin/manifest.json`.

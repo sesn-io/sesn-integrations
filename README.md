@@ -18,14 +18,16 @@ device.
 | Integration | What it does | Status |
 |---|---|---|
 | **[Kodi add-on](kodi/)** | Log playback, browse lists and Up Next, optionally import newly watched state from Sesn | ✅ available |
-| **[Jellyfin plugin](jellyfin/)** | Watching Now and completed watches for your Jellyfin viewer, paired with a short code | ✅ available from the Sesn plugin repository |
-| Browser extension | Log what you watch on streaming sites (Netflix first) | 🚧 planned |
+| **[Jellyfin plugin](jellyfin/)** | Watching Now and completed watches for everyone you track on your Jellyfin server, each to their own Sesn account | ✅ available; sesn.io can install it for you from your Jellyfin API key |
+| **[Tautulli script](tautulli/)** | Optional, for scripters. sesn.io sets Tautulli up from your API key without it | ✅ available |
+| Browser extension | Log what you watch on streaming sites (Netflix first) | 🚧 in testing |
 | **[Stremio / Nuvio catalogue add-on](https://sesn.io/connections/stremio)** | Browse Watchlist and custom lists; metadata only, no streams or playback logging | Available as a hosted Sesn add-on; install with a personal manifest URL |
 
 ## Installation
 
 - **Kodi:** download the [repository ZIP](https://github.com/sesn-io/sesn-integrations/raw/main/kodi/repository.sesn-1.0.0.zip), install it in Kodi, then install Sesn from the added repository. Follow the [Kodi guide](kodi/) and pair your account using the code shown in the add-on.
-- **Jellyfin:** in Dashboard → Plugins → Repositories add `https://sesn.io/downloads/jellyfin/manifest.json`, install Sesn from the catalogue and pair it with the code it shows. See the [Jellyfin guide](jellyfin/).
+- **Jellyfin:** easiest is [sesn.io/connections/jellyfin](https://sesn.io/connections/jellyfin): enter your Jellyfin address and API key and your browser installs and connects the plugin; the key is not sent to Sesn. By hand: in Dashboard → Plugins → Repositories add `https://sesn.io/downloads/jellyfin/manifest.json`, install Sesn from the catalogue and pair it with the code it shows. See the [Jellyfin guide](jellyfin/).
+- **Tautulli:** use [sesn.io/connections/tautulli](https://sesn.io/connections/tautulli) with your Tautulli address and API key; nothing to download. The [script](tautulli/) here is an alternative for people who prefer to automate it.
 - **Stremio / Nuvio:** open [Sesn Connections](https://sesn.io/connections/stremio), create a credential and install using its personal manifest URL. There is no ZIP or separate GitHub client to download.
 
 ## Privacy
