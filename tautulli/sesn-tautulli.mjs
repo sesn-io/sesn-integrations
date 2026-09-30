@@ -20,17 +20,31 @@ import { createInterface } from 'node:readline/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const CONFIG = join(dirname(fileURLToPath(import.meta.url)), 'sesn-tautulli.json');
 const SESN = (process.env.SESN_URL ?? 'https://sesn.io').replace(/\/+$/, '');
 const WEBHOOK_AGENT_ID = 25; // Tautulli's Webhook notification agent
 const TRIGGERS = ['on_play', 'on_pause', 'on_resume', 'on_stop', 'on_watched'];
 // Same data Sesn's manual Tautulli setup uses; {action} tells play/pause/stop/watched apart.
+// `play` is how it was played (device, time played, quality) for your Sesn stats.
+// No IP address or location is requested, so Tautulli never sends them.
 const BODY = JSON.stringify({
   event: '{action}', media_type: '{media_type}', title: '{title}', show_name: '{show_name}', year: '{year}',
   show_year: '{show_year}', season: '{season_num}', episode: '{episode_num}', tmdb_id: '{themoviedb_id}',
-  imdb_id: '{imdb_id}', progress_percent: '{progress_percent}', user_id: '{user_id}', username: '{username}',
-  server_id: '{server_machine_id}',
+  tvdb_id: '{thetvdb_id}', imdb_id: '{imdb_id}', progress_percent: '{progress_percent}', user_id: '{user_id}',
+  username: '{username}', server_id: '{server_machine_id}', unixtime: '{unixtime}',
+  play: {
+    seconds_played: '{stream_duration_sec}', runtime_seconds: '{duration_sec}', position_seconds: '{progress_duration_sec}',
+    player: '{player}', product: '{product}', platform: '{platform}', device: '{device}', library: '{library_name}',
+    transcode: '{transcode_decision}', video_decision: '{video_decision}', audio_decision: '{audio_decision}',
+    resolution: '{video_full_resolution}', stream_resolution: '{stream_video_full_resolution}',
+    dynamic_range: '{video_dynamic_range}', stream_dynamic_range: '{stream_video_dynamic_range}',
+    video_codec: '{video_codec}', stream_video_codec: '{stream_video_codec}', audio_codec: '{audio_codec}',
+    stream_audio_codec: '{stream_audio_codec}', audio_channels: '{audio_channel_layout}',
+    stream_audio_channels: '{stream_audio_channel_layout}', audio_language: '{stream_audio_language}',
+    subtitle_language: '{stream_subtitle_language}', bitrate: '{stream_bitrate}', container: '{container}',
+    optimized: '{optimized_version}', relayed: '{relayed}', secure: '{secure}', live: '{live}', session_id: '{session_id}',
+  },
 }, null, 2);
 
 const say = (...lines) => console.log(lines.join('\n'));
