@@ -203,10 +203,15 @@ def _settings():
 
 
 def _disconnect():
-    """Forget the key on this box. (The key stays valid server-side — revoke it
-    fully on sesn.io/api-keys if you want.)"""
+    """Revoke this device's key on sesn.io, then forget it here. If Sesn can't be
+    reached the key is still forgotten locally, and the person is told to remove
+    the device from Settings on sesn.io so it is cut server-side too."""
+    revoked = sesn_api.revoke_key()
     ADDON.setSettingString("api_key", "")
-    xbmcgui.Dialog().notification("Sesn", "Disconnected from this device", xbmcgui.NOTIFICATION_INFO)
+    if revoked:
+        xbmcgui.Dialog().notification("Sesn", "Disconnected — this device's key is revoked", xbmcgui.NOTIFICATION_INFO)
+    else:
+        xbmcgui.Dialog().ok("Sesn", "Disconnected on this device, but Sesn couldn't be reached to cancel its key. Remove this device in Settings → Devices & API keys on sesn.io.")
     xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
 
 

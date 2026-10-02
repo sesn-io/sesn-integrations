@@ -107,6 +107,27 @@ def post_json(path, payload):
     return None
 
 
+def revoke_key():
+    """Ask sesn.io to revoke the key this device holds (POST /api/v1/link/revoke,
+    authenticated by the key itself). Returns True if Sesn confirmed it, False
+    if it could not be reached — the caller still forgets the key locally."""
+    if requests is None:
+        return False
+    key = (ADDON.getSettingString("api_key") or "").strip()
+    if not key:
+        return False
+    base = (ADDON.getSettingString("server_url") or "https://sesn.io").rstrip("/")
+    try:
+        resp = requests.post(base + "/api/v1/link/revoke", headers={"X-Api-Key": key}, timeout=TIMEOUT)
+        # 401 means the key was already revoked or never valid: nothing left to cut.
+        if 200 <= resp.status_code < 300 or resp.status_code == 401:
+            return True
+        _log("POST /api/v1/link/revoke -> %s" % resp.status_code, xbmc.LOGWARNING)
+    except Exception as err:
+        _debug("revoke error: %s" % err)
+    return False
+
+
 def get_json(path):
     """GET {server}{path} with the API key. Returns parsed JSON, or None on any
     failure. Used by the browse plugin to read Up Next / lists / metadata."""

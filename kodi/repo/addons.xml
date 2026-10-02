@@ -20,7 +20,7 @@
     </assets>
   </extension>
 </addon>
-<addon id="script.sesn" name="Sesn" version="0.2.9" provider-name="Sesn">
+<addon id="script.sesn" name="Sesn" version="0.2.10" provider-name="Sesn">
   <requires>
     <!-- Kodi 19 Matrix+ (Python 3). getUniqueID / onAVStarted / xbmcvfs all land here. -->
     <import addon="xbmc.python" version="3.0.0"/>
@@ -49,7 +49,7 @@
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>
     </assets>
-    <news>0.2.9 - Correct parent-show identifiers for episodes; register Kodi pairing in Connections; validate scrobble acknowledgements.</news>
+    <news>0.2.10 - Disconnect now revokes this device's key on sesn.io, not just on the box. 0.2.9 - Correct parent-show identifiers for episodes; register Kodi pairing in Connections; validate scrobble acknowledgements.</news>
   </extension>
 </addon>
 </addons>

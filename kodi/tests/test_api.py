@@ -53,5 +53,22 @@ class ApiAcceptanceTests(unittest.TestCase):
         self.assertEqual(len(self.requests), before)
 
 
+    def test_revoke_key_posts_with_header_and_treats_401_as_done(self):
+        self.status = 200
+        self.assertTrue(self.api.revoke_key())
+        url, options = self.requests[-1]
+        self.assertEqual(url, 'https://fixture.invalid/api/v1/link/revoke')
+        self.assertEqual(options['headers']['X-Api-Key'], 'synthetic-test-key')
+        self.assertNotIn('synthetic-test-key', url)
+        self.status = 401
+        self.assertTrue(self.api.revoke_key())
+        for status in [403, 429, 503]:
+            self.status = status
+            self.assertFalse(self.api.revoke_key())
+        self.settings['api_key'] = ''
+        before = len(self.requests)
+        self.assertFalse(self.api.revoke_key())
+        self.assertEqual(len(self.requests), before)
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,5 +1,11 @@
 # Sesn add-on for Kodi (`script.sesn`)
 
+## Version 0.2.10 — 2 October 2026
+
+Disconnect now revokes this device's key on sesn.io as well as forgetting it on
+the box. If Sesn can't be reached, the key is still forgotten locally and Kodi says
+to remove the device in Settings → Devices & API keys.
+
 ## Version 0.2.9 — 21 September 2026
 
 This release includes corrected episode parent IDs, pairing
