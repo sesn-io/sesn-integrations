@@ -1,11 +1,14 @@
 # Sesn integrations
 
-## Kodi 0.2.9 — 21 September 2026
+## Kodi 0.2.11, repository 1.0.1 and Jellyfin 0.4 — 4 October 2026
 
-Kodi 0.2.9 includes parent-series episode IDs, explicit Kodi pairing
-registration, validated scrobble acknowledgements and accurate queued-event
-feedback. Eleven offline tests pass. `python3 kodi/build_release.py` rebuilds the
-archive, repository index and checksum. Real-device acceptance remains.
+Kodi 0.2.11 stops sending after a rejected key and asks you to pair again, drops
+refused events, backs off when Sesn is unavailable, expires week-old queued plays
+and only sends the key over https. Repository 1.0.1 reads the protected
+`kodi-repo` branch with SHA-256 checks; `python3 kodi/tools/release.py --out <dir>`
+builds that tree. Jellyfin 0.4 keeps its Sesn key in a private file instead of
+the plugin settings, sends progress at most every 90 seconds, stops after a
+rejected key and no longer gets stuck disconnecting. Real-device acceptance remains.
 
 
 Open-source clients that connect **[Sesn](https://sesn.io)** — a simple, private tracker for TV, film
@@ -25,7 +28,7 @@ device.
 
 ## Installation
 
-- **Kodi:** download the [repository ZIP](https://github.com/sesn-io/sesn-integrations/raw/main/kodi/repository.sesn-1.0.0.zip), install it in Kodi, then install Sesn from the added repository. Follow the [Kodi guide](kodi/) and pair your account using the code shown in the add-on.
+- **Kodi:** download the [repository ZIP](https://github.com/sesn-io/sesn-integrations/raw/kodi-repo/repository.sesn/repository.sesn-1.0.1.zip), install it in Kodi, then install Sesn from the added repository. Follow the [Kodi guide](kodi/) and pair your account using the code shown in the add-on.
 - **Jellyfin:** easiest is [sesn.io/connections/jellyfin](https://sesn.io/connections/jellyfin): enter your Jellyfin address and API key and your browser installs and connects the plugin; the key is not sent to Sesn. By hand: in Dashboard → Plugins → Repositories add `https://sesn.io/downloads/jellyfin/manifest.json`, install Sesn from the catalogue and pair it with the code it shows. See the [Jellyfin guide](jellyfin/).
 - **Tautulli:** use [sesn.io/connections/tautulli](https://sesn.io/connections/tautulli) with your Tautulli address and API key; nothing to download. The [script](tautulli/) here is an alternative for people who prefer to automate it.
 - **Stremio / Nuvio:** open [Sesn Connections](https://sesn.io/connections/stremio), create a credential and install using its personal manifest URL. There is no ZIP or separate GitHub client to download.
@@ -34,7 +37,10 @@ device.
 
 These clients send **only what a watch needs** — a title's ids, how far you got, and your key —
 never your library, your files, or streaming passwords. Keys are **scoped**: a key on your device can
-log and read your own data, but can't change or delete your account.
+log watches to your account (adding to your history and stats) and read your own data. Because a
+key can write to your account, treat it like a password: each device gets its own key, and you can
+revoke one at any time from Settings → Devices & API keys on sesn.io.
+Clients only send keys to an `https://` Sesn address.
 
 ## Licence
 

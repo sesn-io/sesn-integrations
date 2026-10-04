@@ -31,7 +31,10 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value requesting server-side credential revocation.</summary>
     public bool DisconnectRequested { get; set; }
 
-    /// <summary>Gets or sets the secret device grant while pairing is pending.</summary>
+    /// <summary>
+    /// Gets or sets a legacy field. Before 0.4 the pending device code was stored here;
+    /// it is now moved to the private credential file on load and is always null.
+    /// </summary>
     public string? DeviceCode { get; set; }
 
     /// <summary>Gets or sets the short code shown to the administrator.</summary>
@@ -43,11 +46,18 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the Unix expiry of the current pairing.</summary>
     public long PairingExpiresAt { get; set; }
 
-    /// <summary>Gets or sets not_connected, starting, pending, connected, expired, or error.</summary>
+    /// <summary>Gets or sets not_connected, starting, pending, connected, rejected, disconnecting, expired, or error.</summary>
     public string PairingStatus { get; set; }
 
-    /// <summary>Gets or sets the installation credential returned by Sesn.</summary>
+    /// <summary>
+    /// Gets or sets a write-only field. A key posted here (by sesn.io's browser setup)
+    /// is moved to the private credential file and cleared; it is never read back.
+    /// Before 0.4 the key was stored here and is migrated on load.
+    /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether a Sesn key is stored. Set by the server only.</summary>
+    public bool HasCredential { get; set; }
 
     /// <summary>Gets or sets the most recent successful delivery time.</summary>
     public DateTime? LastDeliveredAtUtc { get; set; }

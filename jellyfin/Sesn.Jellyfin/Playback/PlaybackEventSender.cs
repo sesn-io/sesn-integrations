@@ -12,13 +12,15 @@ public sealed class PlaybackEventSender
 {
     private readonly IServerApplicationHost _applicationHost;
     private readonly SesnApiClient _client;
+    private readonly PlaybackThrottle _throttle;
     private readonly ILogger<PlaybackEventSender> _logger;
 
     /// <summary>Initializes the sender.</summary>
-    public PlaybackEventSender(IServerApplicationHost applicationHost, SesnApiClient client, ILogger<PlaybackEventSender> logger)
+    public PlaybackEventSender(IServerApplicationHost applicationHost, SesnApiClient client, PlaybackThrottle throttle, ILogger<PlaybackEventSender> logger)
     {
         _applicationHost = applicationHost;
         _client = client;
+        _throttle = throttle;
         _logger = logger;
     }
 
@@ -29,8 +31,16 @@ public sealed class PlaybackEventSender
     /// </summary>
     public async Task SendAsync(string notificationType, PlaybackProgressEventArgs eventArgs, bool? playedToCompletion = null)
     {
-        var config = Plugin.Instance?.Configuration;
-        if (config is null || !config.Enabled || string.IsNullOrWhiteSpace(config.ApiKey) || eventArgs.Item is null || eventArgs.Item.IsThemeMedia)
+        var plugin = Plugin.Instance;
+        var config = plugin?.Configuration;
+        var apiKey = plugin?.Credentials.ApiKey;
+        if (plugin is null || config is null || !config.Enabled || string.IsNullOrWhiteSpace(apiKey) || eventArgs.Item is null || eventArgs.Item.IsThemeMedia)
+        {
+            return;
+        }
+
+        // After Sesn rejects the key (401) nothing is sent until the server is paired again.
+        if (string.Equals(config.PairingStatus, "rejected", StringComparison.Ordinal))
         {
             return;
         }
@@ -38,12 +48,29 @@ public sealed class PlaybackEventSender
         var tracked = config.Household
             ? eventArgs.Users.Where(user => config.TrackedViewerIds.Contains(ViewerSyncService.NormalizeId(user.Id.ToString()), StringComparer.Ordinal))
             : eventArgs.Users.Where(user => !string.IsNullOrWhiteSpace(config.JellyfinUserId) && IdEquals(user.Id.ToString(), config.JellyfinUserId));
+        var now = DateTime.UtcNow;
         foreach (var user in tracked.ToList())
         {
+            var session = string.Join(
+                '|',
+                user.Id.ToString("N"),
+                eventArgs.PlaySessionId ?? eventArgs.DeviceId ?? string.Empty,
+                eventArgs.Item.Id.ToString("N"));
+            if (!_throttle.ShouldSend(notificationType, session, eventArgs.IsPaused, now))
+            {
+                continue;
+            }
+
             var payload = BuildPayload(notificationType, eventArgs.Item, eventArgs, user.Id.ToString(), user.Username, playedToCompletion);
             try
             {
-                await _client.SendPlaybackAsync(config, payload, CancellationToken.None).ConfigureAwait(false);
+                var status = await _client.SendPlaybackAsync(config, apiKey, payload, CancellationToken.None).ConfigureAwait(false);
+                if (status == 401)
+                {
+                    _logger.LogWarning("Sesn rejected this server's key; playback delivery is paused until it is connected again");
+                    plugin.MarkCredentialRejected();
+                    return;
+                }
             }
             catch (Exception exception)
             {

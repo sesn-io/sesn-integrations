@@ -20,9 +20,8 @@ import { createInterface } from 'node:readline/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const CONFIG = join(dirname(fileURLToPath(import.meta.url)), 'sesn-tautulli.json');
-const SESN = (process.env.SESN_URL ?? 'https://sesn.io').replace(/\/+$/, '');
 const WEBHOOK_AGENT_ID = 25; // Tautulli's Webhook notification agent
 const TRIGGERS = ['on_play', 'on_pause', 'on_resume', 'on_stop', 'on_watched'];
 // Same data Sesn's manual Tautulli setup uses; {action} tells play/pause/stop/watched apart.
@@ -49,6 +48,24 @@ const BODY = JSON.stringify({
 
 const say = (...lines) => console.log(lines.join('\n'));
 const fail = (message) => { console.error(`\n✖ ${message}`); process.exit(1); };
+
+// The Sesn key is only ever sent over https (plain http is allowed to this
+// machine for local testing). A host other than sesn.io is allowed but warned.
+function sesnOrigin(value) {
+  const raw = (value || 'https://sesn.io').trim().replace(/\/+$/, '');
+  let url;
+  try { url = new URL(raw); } catch { fail(`SESN_URL is not a valid URL: ${raw}`); }
+  const host = url.hostname.toLowerCase();
+  const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
+  if (!(url.protocol === 'https:' || (url.protocol === 'http:' && loopback))) {
+    fail(`SESN_URL must start with https:// (http:// is only allowed for localhost): ${raw}`);
+  }
+  if (!loopback && host !== 'sesn.io' && !host.endsWith('.sesn.io')) {
+    console.warn(`⚠ SESN_URL points at ${host}, not sesn.io. Your Sesn key will be sent there.`);
+  }
+  return url.origin;
+}
+const SESN = sesnOrigin(process.env.SESN_URL);
 const load = () => (existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, 'utf8')) : {});
 const save = (config) => { writeFileSync(CONFIG, `${JSON.stringify(config, null, 2)}\n`); try { chmodSync(CONFIG, 0o600); } catch { /* Windows */ } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -70,7 +87,7 @@ async function tautulli(config, cmd, params = {}, method = 'GET') {
 
 async function sesn(path, body, key) {
   const response = await fetch(`${SESN}${path}`, {
-    method: 'POST', signal: AbortSignal.timeout(15000),
+    method: 'POST', signal: AbortSignal.timeout(15000), redirect: 'error', // never forward the key elsewhere
     headers: { 'content-type': 'application/json', 'user-agent': `Sesn-Tautulli/${VERSION}`, ...(key ? { 'x-api-key': key } : {}) },
     body: JSON.stringify(body ?? {}),
   }).catch((error) => fail(`Could not reach Sesn (${error.message}).`));

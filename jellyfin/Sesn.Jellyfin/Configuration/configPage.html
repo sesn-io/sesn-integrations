@@ -59,15 +59,16 @@
                     document.querySelector('#Enabled').checked = config.Enabled !== false;
                     if (config.JellyfinUserId) document.querySelector('#JellyfinUserId').value = config.JellyfinUserId;
                     var busy = config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting';
-                    var hasCredential = !!config.ApiKey;
+                    var hasCredential = !!config.HasCredential;
+                    var rejected = config.PairingStatus === 'rejected';
                     codePanel.style.display = config.PairingStatus === 'pending' ? 'block' : 'none';
-                    var household = !!config.Household && hasCredential;
+                    var household = !!config.Household && hasCredential && !rejected;
                     document.querySelector('#HouseholdNote').style.display = household ? 'block' : 'none';
                     document.querySelector('#ViewerContainer').style.display = household ? 'none' : 'block';
                     var tracked = (config.TrackedViewerIds || []).length;
                     document.querySelector('#TrackedCount').textContent = tracked === 1 ? '1 user is tracked.' : tracked + ' users are tracked.';
                     disconnect.style.display = hasCredential ? 'block' : 'none';
-                    pair.style.display = hasCredential ? 'none' : 'block';
+                    pair.style.display = hasCredential && !rejected ? 'none' : 'block';
                     pair.disabled = busy;
                     disconnect.disabled = busy;
                     if (config.PairingStatus === 'connected') status.textContent = 'Connected to Sesn';
@@ -76,6 +77,8 @@
                     else if (config.PairingStatus === 'disconnecting') status.textContent = 'Revoking this connection…';
                     else if (config.PairingStatus === 'expired') status.textContent = 'That code expired. Start again.';
                     else if (config.PairingStatus === 'error') status.textContent = 'Sesn could not start pairing. Try again.';
+                    else if (rejected) status.textContent = 'Sesn no longer accepts this server\'s key, so nothing is being sent. Connect again.';
+                    else if (config.LastDeliveryStatus) status.textContent = 'Not connected. ' + config.LastDeliveryStatus;
                     else status.textContent = 'Not connected';
                     document.querySelector('#UserCode').textContent = config.UserCode || '';
                     var link = document.querySelector('#VerificationUrl');

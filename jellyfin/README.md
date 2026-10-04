@@ -13,8 +13,18 @@ playback lifecycle to Sesn. Separate packages cover Jellyfin 10.11, 12.0 and
   that viewer is sent.
 - Pairs with Sesn using a short code, so no Sesn password is entered or stored
   on the Jellyfin server.
-- Sends start, progress, pause, stop, and completion events.
-- Revokes the Sesn credential server-side when disconnected or replaced.
+- Sends start, pause, resume, stop, and completion events, plus at most one
+  progress update every 90 seconds per stream.
+- Revokes the Sesn credential server-side when disconnected or replaced. A key
+  already revoked on sesn.io counts as done; if Sesn can't be reached the
+  plugin backs off and, after several tries, forgets the key locally and says so.
+- Keeps the Sesn key in a private file (`plugins/configurations/Sesn/credentials.json`
+  under Jellyfin's data directory, owner-only on Linux and macOS), not in the
+  plugin settings that the dashboard reads. The settings only show whether a key
+  is stored. Keys from versions before 0.4 are moved there automatically.
+- Stops sending if Sesn rejects the key (HTTP 401) until you connect again.
+- Only talks to an `https://` Sesn address (plain `http://` is allowed for
+  localhost testing) and logs a warning if the address isn't sesn.io.
 - Never interrupts Jellyfin playback when Sesn is unavailable.
 
 A household is the owner plus up to four other people. Each person's plays go

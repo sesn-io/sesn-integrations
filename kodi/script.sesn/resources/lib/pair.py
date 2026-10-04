@@ -4,6 +4,9 @@ POST /api/v1/link/new -> show the short code + the URL in a progress dialog, the
 POST /api/v1/link/poll every `interval` seconds until the user confirms on their
 phone; the minted (scoped) key is stored in settings. Nothing sensitive is ever
 typed on the remote.
+
+The poll interval is never below MIN_INTERVAL whatever the server says, and grows
+by SLOW_DOWN_STEP on HTTP 429 or an RFC 8628 "slow_down" answer.
 """
 import time
 
@@ -14,6 +17,29 @@ import xbmcgui
 import sesn_api
 
 ADDON = xbmcaddon.Addon()
+MIN_INTERVAL = 5
+MAX_INTERVAL = 60
+SLOW_DOWN_STEP = 5
+
+
+def clamp_interval(value, default=MIN_INTERVAL):
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        seconds = default
+    return max(MIN_INTERVAL, min(MAX_INTERVAL, seconds))
+
+
+def next_interval(interval, status, body, retry_after=None):
+    """The wait before the next poll, given the last poll's response."""
+    slow = status == 429 or (
+        isinstance(body, dict) and "slow_down" in (body.get("status"), body.get("error"))
+    )
+    if slow:
+        interval = interval + SLOW_DOWN_STEP
+    if retry_after:
+        interval = max(interval, int(retry_after))
+    return clamp_interval(interval)
 
 
 def _display_url(url):
@@ -31,8 +57,11 @@ def run():
     code = start.get("user_code_display") or start.get("user_code") or ""
     device_code = start.get("device_code")
     url = _display_url(start.get("verification_url"))
-    interval = int(start.get("interval") or 5)
-    expires_in = int(start.get("expires_in") or 900)
+    interval = clamp_interval(start.get("interval"))
+    try:
+        expires_in = max(60, min(3600, int(start.get("expires_in") or 900)))
+    except (TypeError, ValueError):
+        expires_in = 900
 
     # ⚠ Kodi 19+ DialogProgress.create/update take (heading, message) — a SINGLE
     # message string with \n, NOT the old 4-line signature (that throws TypeError).
@@ -55,12 +84,15 @@ def run():
             pct = int(100 * (1 - (deadline - time.time()) / float(expires_in)))
             dlg.update(min(99, max(0, pct)), msg)
 
-            poll = sesn_api.post_json("/api/v1/link/poll", {"device_code": device_code})
-            if not poll:
+            http_status, poll, retry_after = sesn_api.post_json_ex(
+                "/api/v1/link/poll", {"device_code": device_code}
+            )
+            interval = next_interval(interval, http_status, poll, retry_after)
+            if not isinstance(poll, dict):
                 continue
             status = poll.get("status")
-            if status == "authorized":
-                ADDON.setSettingString("api_key", poll.get("api_key") or "")
+            if status == "authorized" and poll.get("api_key") and 200 <= http_status < 300:
+                ADDON.setSettingString("api_key", poll.get("api_key"))
                 dlg.close()
                 xbmcgui.Dialog().notification(
                     "Sesn", "Paired — you're connected.", xbmcgui.NOTIFICATION_INFO

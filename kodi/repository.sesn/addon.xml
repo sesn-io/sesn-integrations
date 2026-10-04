@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="repository.sesn" name="Sesn Repository" version="1.0.0" provider-name="Sesn">
+<addon id="repository.sesn" name="Sesn Repository" version="1.0.1" provider-name="Sesn">
   <extension point="xbmc.addon.repository" name="Sesn Repository">
+    <!-- Served from the protected kodi-repo branch, written only by kodi/tools/release.py.
+         Kodi 18+ checks addons.xml against addons.xml.sha256 and each zip against
+         its <zip>.sha256 before installing. -->
     <dir>
-      <info compressed="false">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml</info>
-      <checksum>https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml.md5</checksum>
-      <datadir zip="true">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo</datadir>
+      <info compressed="false">https://raw.githubusercontent.com/sesn-io/sesn-integrations/kodi-repo/addons.xml</info>
+      <checksum verify="sha256">https://raw.githubusercontent.com/sesn-io/sesn-integrations/kodi-repo/addons.xml.sha256</checksum>
+      <datadir zip="true">https://raw.githubusercontent.com/sesn-io/sesn-integrations/kodi-repo</datadir>
+      <hashes>sha256</hashes>
     </dir>
   </extension>
   <extension point="xbmc.addon.metadata">
@@ -17,5 +21,6 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
+    <news>1.0.1 - Add-ons now come from a dedicated, protected release branch, and Kodi verifies a SHA-256 checksum for the index and every download.</news>
   </extension>
 </addon>

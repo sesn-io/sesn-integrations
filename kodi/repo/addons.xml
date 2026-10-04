@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addons>
-<addon id="repository.sesn" name="Sesn Repository" version="1.0.0" provider-name="Sesn">
+<addon id="repository.sesn" name="Sesn Repository" version="1.0.1" provider-name="Sesn">
   <extension point="xbmc.addon.repository" name="Sesn Repository">
+    <!-- Served from the protected kodi-repo branch, written only by kodi/tools/release.py.
+         Kodi 18+ checks addons.xml against addons.xml.sha256 and each zip against
+         its <zip>.sha256 before installing. -->
     <dir>
-      <info compressed="false">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml</info>
-      <checksum>https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo/addons.xml.md5</checksum>
-      <datadir zip="true">https://raw.githubusercontent.com/sesn-io/sesn-integrations/main/kodi/repo</datadir>
+      <info compressed="false">https://raw.githubusercontent.com/sesn-io/sesn-integrations/kodi-repo/addons.xml</info>
+      <checksum verify="sha256">https://raw.githubusercontent.com/sesn-io/sesn-integrations/kodi-repo/addons.xml.sha256</checksum>
+      <datadir zip="true">https://raw.githubusercontent.com/sesn-io/sesn-integrations/kodi-repo</datadir>
+      <hashes>sha256</hashes>
     </dir>
   </extension>
   <extension point="xbmc.addon.metadata">
@@ -18,9 +22,10 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
+    <news>1.0.1 - Add-ons now come from a dedicated, protected release branch, and Kodi verifies a SHA-256 checksum for the index and every download.</news>
   </extension>
 </addon>
-<addon id="script.sesn" name="Sesn" version="0.2.10" provider-name="Sesn">
+<addon id="script.sesn" name="Sesn" version="0.2.11" provider-name="Sesn">
   <requires>
     <!-- Kodi 19 Matrix+ (Python 3). getUniqueID / onAVStarted / xbmcvfs all land here. -->
     <import addon="xbmc.python" version="3.0.0"/>
@@ -49,7 +54,7 @@
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>
     </assets>
-    <news>0.2.10 - Disconnect now revokes this device's key on sesn.io, not just on the box. 0.2.9 - Correct parent-show identifiers for episodes; register Kodi pairing in Connections; validate scrobble acknowledgements.</news>
+    <news>0.2.11 - Safer sending: stops after Sesn rejects the key and asks you to pair again; drops events Sesn refuses; backs off up to 30 minutes when Sesn is unavailable and honours Retry-After; queued events expire after 7 days; only https Sesn addresses are used; gentler pairing and sync polling. 0.2.10 - Disconnect now revokes this device's key on sesn.io, not just on the box. 0.2.9 - Correct parent-show identifiers for episodes; register Kodi pairing in Connections; validate scrobble acknowledgements.</news>
   </extension>
 </addon>
 </addons>

@@ -87,6 +87,20 @@
             <heading>30011</heading>
           </control>
         </setting>
+        <!-- Internal, never shown: fingerprint (not the key) of a key Sesn rejected
+             with 401. Sending stops while it matches the stored key; pairing again
+             stores a new key, which no longer matches. -->
+        <setting id="invalid_key" type="string" label="30010">
+          <level>4</level>
+          <visible>false</visible>
+          <default></default>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30010</heading>
+          </control>
+        </setting>
         <setting id="debug" type="boolean" label="30030">
           <level>2</level>
           <default>false</default>

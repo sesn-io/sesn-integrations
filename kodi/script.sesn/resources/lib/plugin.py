@@ -192,7 +192,14 @@ def _lists():
 
 
 def _list(params):
-    data = sesn_api.get_json("/api/v1/lists/%s" % params.get("id")) or {}
+    # The id arrives in the plugin URL, which anything on the box can build:
+    # accept only a plain number so it can't rewrite the API path or query.
+    list_id = str(params.get("id") or "")
+    if not (list_id.isascii() and list_id.isdigit() and len(list_id) <= 18):
+        xbmc.log("[script.sesn] ignoring invalid list id", xbmc.LOGWARNING)
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
+        return
+    data = sesn_api.get_json("/api/v1/lists/%d" % int(list_id)) or {}
     _render(data.get("items") or [])
 
 
@@ -217,9 +224,15 @@ def _disconnect():
 
 def _root():
     key = (ADDON.getSettingString("api_key") or "").strip()
-    if not key:
-        # Not connected yet — lead with pairing (enter a short code on your phone,
-        # nothing typed on the remote); manual key-paste is the fallback.
+    rejected = bool(key) and sesn_api.key_invalid()
+    if not key or rejected:
+        # Not connected yet (or Sesn rejected the key) — lead with pairing (enter a
+        # short code on your phone, nothing typed on the remote); manual key-paste
+        # is the fallback.
+        if rejected:
+            note = xbmcgui.ListItem(label="This device was disconnected from Sesn — pair again")
+            note.setArt({"icon": "DefaultIconWarning.png"})
+            xbmcplugin.addDirectoryItem(HANDLE, _url(action="noop"), note, isFolder=False)
         pair_li = xbmcgui.ListItem(label="Pair with a code (recommended)")
         pair_li.setArt({"icon": "DefaultAddonService.png"})
         xbmcplugin.addDirectoryItem(HANDLE, _url(action="pair"), pair_li, isFolder=False)

@@ -24,6 +24,8 @@ ADDON = xbmcaddon.Addon()
 PROFILE = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
 CURSOR_FILE = PROFILE + "sync_cursor.json"
 PAGE_LIMIT = 200
+PAGE_PAUSE = 1  # seconds between pages, so a full reconcile is gentle on Sesn
+MAX_PAGES = 500  # safety stop for one pass (100k plays)
 
 
 def _log(msg):
@@ -90,10 +92,13 @@ def run(full=False):
     movies = kodi_library.movie_index()
     shows = kodi_library.show_index()
     stamped = 0
+    pages = 0
+    monitor = xbmc.Monitor()
     while True:
         data = sesn_api.get_json("/api/v1/sync/watched?since=%d&limit=%d" % (cursor, PAGE_LIMIT))
         if not data or not data.get("ok"):
             break
+        pages += 1
         for it in data.get("items") or []:
             ids = {"imdb": it.get("imdb_id"), "tmdb": it.get("tmdb_id"), "tvdb": it.get("tvdb_id")}
             if it.get("type") == "episode":
@@ -104,12 +109,28 @@ def run(full=False):
                 mid = kodi_library.find_movie(ids, index=movies)
                 if mid is not None and _stamp("movie", mid, it.get("watched_at"), it.get("rating")):
                     stamped += 1
-        cursor = data.get("cursor", cursor)
-        if not full:
-            _write_cursor(cursor)
+        try:
+            next_cursor = int(data.get("cursor", cursor))
+        except (TypeError, ValueError):
+            next_cursor = cursor
+        advanced = next_cursor > cursor
+        if advanced:
+            cursor = next_cursor
+            if not full:
+                _write_cursor(cursor)
         if not data.get("has_more"):
             break
+        if not advanced:
+            # A server that says "more" without moving the cursor would loop forever.
+            _log("down-sync stopped: cursor did not advance past %d" % cursor)
+            break
+        if pages >= MAX_PAGES:
+            _log("down-sync paused after %d pages; continues next pass" % pages)
+            break
+        if monitor.waitForAbort(PAGE_PAUSE):
+            break
     if full:
-        _write_cursor(cursor)  # deltas resume from where the reconcile reached
+        # Deltas resume from where the reconcile reached, never behind the saved cursor.
+        _write_cursor(max(cursor, _read_cursor()))
     # Loud-ish: report what the pass changed so drift repair is visible in the log.
     _log("down-sync pass done (%s), stamped %d item(s)" % ("full" if full else "delta", stamped))

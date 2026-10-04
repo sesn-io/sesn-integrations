@@ -35,9 +35,14 @@ public sealed class ViewerSyncService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            var wait = TimeSpan.FromSeconds(30);
             try
             {
-                await TickAsync(stoppingToken).ConfigureAwait(false);
+                if (!await TickAsync(stoppingToken).ConfigureAwait(false))
+                {
+                    // Any failure (including 401) waits the full interval, not 30 s.
+                    wait = Interval;
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -46,39 +51,49 @@ public sealed class ViewerSyncService : BackgroundService
             catch (Exception exception)
             {
                 _logger.LogWarning(exception, "Sesn viewer sync failed");
+                wait = Interval;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken).ConfigureAwait(false);
+            await Task.Delay(wait, stoppingToken).ConfigureAwait(false);
         }
     }
 
-    private async Task TickAsync(CancellationToken cancellationToken)
+    /// <summary>Runs one sync check. Returns false when a report was attempted and failed.</summary>
+    private async Task<bool> TickAsync(CancellationToken cancellationToken)
     {
         var plugin = Plugin.Instance;
         var config = plugin?.Configuration;
-        if (plugin is null || config is null || string.IsNullOrWhiteSpace(config.ApiKey) ||
+        var apiKey = plugin?.Credentials.ApiKey;
+        if (plugin is null || config is null || string.IsNullOrWhiteSpace(apiKey) ||
             !string.Equals(config.PairingStatus, "connected", StringComparison.Ordinal))
         {
-            return;
+            return true;
         }
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (now - config.ViewersSyncedAt < (long)Interval.TotalSeconds)
         {
-            return;
+            return true;
         }
 
         var viewers = _userManager.GetUsers().Select(user => (NormalizeId(user.Id.ToString()), user.Username)).ToList();
-        var report = await _client.ReportViewersAsync(config, _applicationHost.SystemId, _applicationHost.FriendlyName, viewers, cancellationToken)
+        var (report, status) = await _client.ReportViewersAsync(config, apiKey, _applicationHost.SystemId, _applicationHost.FriendlyName, viewers, cancellationToken)
             .ConfigureAwait(false);
+        if (status == 401)
+        {
+            plugin.MarkCredentialRejected();
+            return false;
+        }
+
         if (report is null)
         {
-            return;
+            return false;
         }
 
         config.Household = report.Household;
         config.TrackedViewerIds = (report.Tracked ?? []).Select(NormalizeId).Distinct().ToArray();
         config.ViewersSyncedAt = now;
         plugin.SaveConfiguration();
+        return true;
     }
 }

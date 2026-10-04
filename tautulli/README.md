@@ -34,7 +34,9 @@ node sesn-tautulli.mjs remove    # delete the agent and revoke the pairing
 ```
 
 For unattended runs set `TAUTULLI_URL` and `TAUTULLI_API_KEY` instead of
-answering the prompts.
+answering the prompts. `SESN_URL` (default `https://sesn.io`) must be an
+`https://` address; plain `http://` is accepted only for localhost testing, and
+any host other than sesn.io prints a warning.
 
 A Plex server uses exactly one live source: the native Plex webhook **or**
 Tautulli. If both are set up, choose which one on sesn.io; plays never count twice.

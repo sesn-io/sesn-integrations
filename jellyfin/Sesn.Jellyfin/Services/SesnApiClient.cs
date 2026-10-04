@@ -22,8 +22,14 @@ public sealed class SesnApiClient
     /// <summary>Starts a passwordless device link.</summary>
     public async Task<LinkStartResponse?> StartPairingAsync(PluginConfiguration config, string serverName, CancellationToken cancellationToken)
     {
+        var uri = BuildUri(config, "/api/v1/link/new");
+        if (uri is null)
+        {
+            return null;
+        }
+
         using var response = await _httpClient.PostAsJsonAsync(
-            BuildUri(config, "/api/v1/link/new"),
+            uri,
             new { provider = "jellyfin", device_name = $"Jellyfin · {serverName}" },
             JsonOptions,
             cancellationToken).ConfigureAwait(false);
@@ -37,11 +43,17 @@ public sealed class SesnApiClient
     }
 
     /// <summary>Checks a pending device link.</summary>
-    public async Task<LinkPollResponse?> PollPairingAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    public async Task<LinkPollResponse?> PollPairingAsync(PluginConfiguration config, string deviceCode, CancellationToken cancellationToken)
     {
+        var uri = BuildUri(config, "/api/v1/link/poll");
+        if (uri is null)
+        {
+            return null;
+        }
+
         using var response = await _httpClient.PostAsJsonAsync(
-            BuildUri(config, "/api/v1/link/poll"),
-            new { device_code = config.DeviceCode },
+            uri,
+            new { device_code = deviceCode },
             JsonOptions,
             cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
@@ -53,32 +65,47 @@ public sealed class SesnApiClient
         return await response.Content.ReadFromJsonAsync<LinkPollResponse>(JsonOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Sends a playback event using the paired, revocable credential.</summary>
-    public async Task<bool> SendPlaybackAsync(PluginConfiguration config, object payload, CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends a playback event using the paired, revocable credential. Returns the HTTP
+    /// status, or 0 when nothing was sent because the Sesn address is not allowed.
+    /// </summary>
+    public async Task<int> SendPlaybackAsync(PluginConfiguration config, string apiKey, object payload, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(config, "/api/v1/webhooks/jellyfin"))
+        var uri = BuildUri(config, "/api/v1/webhooks/jellyfin");
+        if (uri is null)
+        {
+            return 0;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
         {
             Content = JsonContent.Create(payload, options: JsonOptions),
         };
-        request.Headers.TryAddWithoutValidation("X-Api-Key", config.ApiKey);
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogWarning("Sesn playback delivery returned HTTP {StatusCode}", (int)response.StatusCode);
-            return false;
         }
 
-        return true;
+        return (int)response.StatusCode;
     }
 
     /// <summary>
     /// Reports this server's local users so the owner can map them on sesn.io, and
     /// returns which of them Sesn accepts playback for. Unlisted users never leave the server.
+    /// The status is 0 when nothing was sent because the Sesn address is not allowed.
     /// </summary>
-    public async Task<ViewerReport?> ReportViewersAsync(
-        PluginConfiguration config, string serverId, string serverName, IEnumerable<(string Id, string Name)> viewers, CancellationToken cancellationToken)
+    public async Task<(ViewerReport? Report, int Status)> ReportViewersAsync(
+        PluginConfiguration config, string apiKey, string serverId, string serverName, IEnumerable<(string Id, string Name)> viewers, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(config, "/api/v1/connections/viewers"))
+        var uri = BuildUri(config, "/api/v1/connections/viewers");
+        if (uri is null)
+        {
+            return (null, 0);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
         {
             Content = JsonContent.Create(
                 new
@@ -90,41 +117,53 @@ public sealed class SesnApiClient
                 },
                 options: JsonOptions),
         };
-        request.Headers.TryAddWithoutValidation("X-Api-Key", config.ApiKey);
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogWarning("Sesn viewer report returned HTTP {StatusCode}", (int)response.StatusCode);
-            return null;
+            return (null, (int)response.StatusCode);
         }
 
-        return await response.Content.ReadFromJsonAsync<ViewerReport>(JsonOptions, cancellationToken).ConfigureAwait(false);
+        var report = await response.Content.ReadFromJsonAsync<ViewerReport>(JsonOptions, cancellationToken).ConfigureAwait(false);
+        return (report, (int)response.StatusCode);
     }
 
-    /// <summary>Revokes the installation credential at Sesn.</summary>
-    public async Task<bool> RevokeAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    /// <summary>
+    /// Revokes the installation credential at Sesn. 401 and 403 mean Sesn no longer
+    /// accepts the key (for example it was already revoked on sesn.io), so there is
+    /// nothing left to cut and that counts as revoked.
+    /// </summary>
+    public async Task<bool> RevokeAsync(PluginConfiguration config, string? apiKey, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
             return true;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(config, "/api/v1/link/revoke"));
-        request.Headers.TryAddWithoutValidation("X-Api-Key", config.ApiKey);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        var uri = BuildUri(config, "/api/v1/link/revoke");
+        if (uri is null)
         {
-            _logger.LogWarning("Sesn credential revocation returned HTTP {StatusCode}", (int)response.StatusCode);
             return false;
         }
 
-        return true;
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri);
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var status = (int)response.StatusCode;
+        if (response.IsSuccessStatusCode || status == 401 || status == 403)
+        {
+            return true;
+        }
+
+        _logger.LogWarning("Sesn credential revocation returned HTTP {StatusCode}", status);
+        return false;
     }
 
-    private static Uri BuildUri(PluginConfiguration config, string path)
+    private Uri? BuildUri(PluginConfiguration config, string path)
     {
-        var origin = string.IsNullOrWhiteSpace(config.SesnBaseUrl) ? "https://sesn.io" : config.SesnBaseUrl.Trim();
-        return new Uri(new Uri(origin.TrimEnd('/') + "/", UriKind.Absolute), path.TrimStart('/'));
+        var origin = SesnUrl.Resolve(config.SesnBaseUrl, _logger);
+        return origin is null ? null : new Uri(origin, path.TrimStart('/'));
     }
 }
 

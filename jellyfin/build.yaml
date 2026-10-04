@@ -1,7 +1,7 @@
 ---
 name: "Sesn"
 guid: "d214481e-2ec6-4b17-91db-b45b705a06aa"
-version: "0.2.1.0"
+version: "0.4.2.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 overview: "Track Jellyfin playback securely on Sesn."
@@ -16,5 +16,8 @@ artifacts:
   - "meta.json"
   - "icon-512.png"
 changelog: >
-  Initial native plugin with secure device pairing, explicit viewer mapping,
-  playback lifecycle tracking, and server-side credential revocation.
+  0.4: the Sesn key is kept in a private credentials file instead of the plugin
+  settings; progress is sent at most every 90 seconds per stream; delivery stops
+  after Sesn rejects the key until the server is paired again; disconnect treats
+  an already-revoked key as done and backs off instead of retrying forever; only
+  https Sesn addresses (or http to localhost) are accepted.

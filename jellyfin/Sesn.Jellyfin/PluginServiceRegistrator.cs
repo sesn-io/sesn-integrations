@@ -18,8 +18,9 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddHttpClient<SesnApiClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(15);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Sesn-Jellyfin/0.3");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Sesn-Jellyfin/0.4");
         });
+        services.AddSingleton<PlaybackThrottle>();
         services.AddScoped<PlaybackEventSender>();
         services.AddHostedService<PairingService>();
         services.AddHostedService<ViewerSyncService>();
