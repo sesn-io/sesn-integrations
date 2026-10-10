@@ -59,8 +59,22 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether a Sesn key is stored. Set by the server only.</summary>
     public bool HasCredential { get; set; }
 
-    /// <summary>Gets or sets the most recent successful delivery time.</summary>
+    /// <summary>Gets or sets whether old keys still await remote revocation. Set by the server.</summary>
+    public bool RevocationPending { get; set; }
+
+    /// <summary>Gets or sets a safe manual-cleanup warning after revocation retries are exhausted.</summary>
+    public string? RevocationWarning { get; set; }
+
+    /// <summary>Gets or sets the most recent durable completion acceptance time.</summary>
     public DateTime? LastDeliveredAtUtc { get; set; }
+
+    /// <summary>Gets or sets server-owned counts of completed watches awaiting delivery or review.</summary>
+    public bool HouseholdPlaybackPaused { get; set; }
+    public int PendingCompletions { get; set; }
+    public int HeldCompletions { get; set; }
+    public int FailedCompletions { get; set; }
+    public int ExpiredCompletions { get; set; }
+    public string? LastCompletionStatus { get; set; }
 
     /// <summary>Gets or sets a value indicating whether Sesn routes this server's users by household mapping.</summary>
     public bool Household { get; set; }

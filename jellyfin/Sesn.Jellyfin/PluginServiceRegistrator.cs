@@ -24,6 +24,7 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddScoped<PlaybackEventSender>();
         services.AddHostedService<PairingService>();
         services.AddHostedService<ViewerSyncService>();
+        services.AddHostedService<CompletionDeliveryService>();
         services.AddScoped<IEventConsumer<PlaybackStartEventArgs>, PlaybackStartConsumer>();
         services.AddScoped<IEventConsumer<PlaybackProgressEventArgs>, PlaybackProgressConsumer>();
         services.AddScoped<IEventConsumer<PlaybackStopEventArgs>, PlaybackStopConsumer>();

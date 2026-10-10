@@ -12,11 +12,9 @@ public sealed class PairingService : BackgroundService
     private const int MaxRevokeAttempts = 8;
     private const double MaxRevokeDelaySeconds = 1800;
     private const string GaveUpMessage =
-        "Disconnected here, but Sesn could not be reached to revoke this server's key. Remove it under Settings, Devices & API keys on sesn.io.";
+        "An old Sesn key could not be revoked. Remove the old connection under Connections, Jellyfin on sesn.io.";
 
     private readonly ILogger<PairingService> _logger;
-    private int _revokeFailures;
-    private DateTimeOffset _nextRevokeAttempt = DateTimeOffset.MinValue;
 
     /// <summary>Initializes the pairing worker.</summary>
     public PairingService(SesnApiClient client, IServerApplicationHost applicationHost, ILogger<PairingService> logger)
@@ -48,152 +46,126 @@ public sealed class PairingService : BackgroundService
         }
     }
 
-    private enum RevokeStep
-    {
-        Done,
-        Wait,
-        GaveUp,
-    }
-
     private async Task TickAsync(CancellationToken cancellationToken)
     {
         var plugin = Plugin.Instance;
-        if (plugin is null)
-        {
-            return;
-        }
-
-        var config = plugin.Configuration;
+        if (plugin is null) return;
+        var state = plugin.CaptureState();
+        var config = state.Configuration;
         var credentials = plugin.Credentials;
+
+        // The private queue contains retired keys only. It is independent of any
+        // newly connected key and always uses each old key's original destination.
+        await DrainRevocationAsync(plugin, cancellationToken).ConfigureAwait(false);
+        if (!plugin.IsCurrent(state)) return;
+
         if (config.DisconnectRequested)
         {
-            if (!string.Equals(config.PairingStatus, "disconnecting", StringComparison.Ordinal))
+            if (credentials.NextRevocation is not null) return;
+            plugin.TryUpdateState(state, current =>
             {
-                config.PairingStatus = "disconnecting";
-                plugin.SaveConfiguration();
-            }
-
-            var step = await TryRevokeAsync(config, credentials.ApiKey, cancellationToken).ConfigureAwait(false);
-            if (step == RevokeStep.Wait)
-            {
-                return;
-            }
-
-            credentials.Clear();
-            config.DisconnectRequested = false;
-            config.PairingRequested = false;
-            config.HasCredential = false;
-            config.Household = false;
-            config.TrackedViewerIds = [];
-            config.ViewersSyncedAt = 0;
-            config.UserCode = null;
-            config.VerificationUrl = null;
-            config.PairingStatus = "not_connected";
-            config.LastDeliveryStatus = step == RevokeStep.GaveUp ? GaveUpMessage : null;
-            plugin.SaveConfiguration();
+                current.DisconnectRequested = false;
+                current.PairingRequested = false;
+                current.Household = false;
+                current.TrackedViewerIds = [];
+                current.ViewersSyncedAt = 0;
+                current.UserCode = null;
+                current.VerificationUrl = null;
+                current.PairingStatus = "not_connected";
+            });
             return;
         }
 
         if (config.PairingRequested)
         {
-            if (!string.Equals(config.PairingStatus, "starting", StringComparison.Ordinal))
+            if (credentials.NextRevocation is not null) return;
+            if (!plugin.TryUpdateState(state, current =>
             {
-                config.PairingStatus = "starting";
-                plugin.SaveConfiguration();
-            }
+                current.PairingRequested = false;
+                current.PairingStatus = "starting";
+                current.UserCode = null;
+                current.LastDeliveryStatus = null;
+            })) return;
 
-            var step = await TryRevokeAsync(config, credentials.ApiKey, cancellationToken).ConfigureAwait(false);
-            if (step == RevokeStep.Wait)
+            LinkStartResponse? started;
+            try
             {
-                return;
+                started = await _client.StartPairingAsync(config, _applicationHost.FriendlyName, cancellationToken).ConfigureAwait(false);
             }
-
-            config.PairingRequested = false;
-            credentials.Clear();
-            config.HasCredential = false;
-            config.UserCode = null;
-            config.LastDeliveryStatus = step == RevokeStep.GaveUp ? GaveUpMessage : null;
-            plugin.SaveConfiguration();
-
-            var started = await _client.StartPairingAsync(config, _applicationHost.FriendlyName, cancellationToken).ConfigureAwait(false);
-            if (started is null)
+            catch
             {
-                config.PairingStatus = "error";
-                plugin.SaveConfiguration();
-                return;
+                plugin.DiscardPairingResult(state);
+                throw;
             }
-
-            credentials.Set(null, started.DeviceCode);
-            config.UserCode = started.UserCodeDisplay;
-            config.VerificationUrl = started.VerificationUrl;
-            config.PairingExpiresAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + started.ExpiresIn;
-            config.PairingStatus = "pending";
-            plugin.SaveConfiguration();
+            var accepted = plugin.TryUpdateState(state, current =>
+            {
+                if (started is null)
+                {
+                    current.PairingStatus = "error";
+                    return;
+                }
+                credentials.Set(null, started.DeviceCode);
+                current.UserCode = started.UserCodeDisplay;
+                current.VerificationUrl = started.VerificationUrl;
+                current.PairingExpiresAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + started.ExpiresIn;
+                current.PairingStatus = "pending";
+            });
+            if (!accepted) plugin.DiscardPairingResult(state);
             return;
         }
 
         var deviceCode = credentials.DeviceCode;
-        if (!string.Equals(config.PairingStatus, "pending", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(deviceCode))
-        {
-            return;
-        }
-
+        if (!string.Equals(config.PairingStatus, "pending", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(deviceCode)) return;
         if (config.PairingExpiresAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
-            config.PairingStatus = "expired";
-            credentials.SetDeviceCode(null);
-            plugin.SaveConfiguration();
+            plugin.TryUpdateState(state, current =>
+            {
+                current.PairingStatus = "expired";
+                credentials.SetDeviceCode(null);
+            });
             return;
         }
 
         var result = await _client.PollPairingAsync(config, deviceCode, cancellationToken).ConfigureAwait(false);
-        if (result is null || string.Equals(result.Status, "pending", StringComparison.Ordinal))
-        {
-            return;
-        }
-
+        if (result is null || string.Equals(result.Status, "pending", StringComparison.Ordinal)) return;
         if (string.Equals(result.Status, "authorized", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(result.ApiKey))
         {
-            credentials.Set(result.ApiKey, null);
-            config.HasCredential = true;
-            config.PairingStatus = "connected";
-            config.LastDeliveryStatus = null;
-            config.Household = false;
-            config.TrackedViewerIds = [];
-            config.ViewersSyncedAt = 0;
-            plugin.SaveConfiguration();
+            var accepted = plugin.TryUpdateState(state, current =>
+            {
+                credentials.Set(result.ApiKey, null);
+                current.PairingStatus = "connected";
+                current.LastDeliveryStatus = null;
+                current.Household = false;
+                current.TrackedViewerIds = [];
+                current.ViewersSyncedAt = 0;
+            });
+            if (!accepted)
+            {
+                // Approval may have completed just as the administrator disconnected.
+                // Retire the returned key; never reactivate the superseded session.
+                plugin.DiscardPairingResult(state, deviceCode, result.ApiKey);
+            }
             return;
         }
 
-        credentials.SetDeviceCode(null);
-        config.PairingStatus = "expired";
-        plugin.SaveConfiguration();
+        plugin.TryUpdateState(state, current =>
+        {
+            credentials.SetDeviceCode(null);
+            current.PairingStatus = "expired";
+        });
     }
 
-    /// <summary>
-    /// Revokes the stored key with exponential backoff. 401/403 already count as
-    /// revoked (see <see cref="SesnApiClient.RevokeAsync"/>). After
-    /// <see cref="MaxRevokeAttempts"/> failures the key is forgotten locally anyway, so a
-    /// Sesn outage can never block disconnecting or pairing again.
-    /// </summary>
-    private async Task<RevokeStep> TryRevokeAsync(Configuration.PluginConfiguration config, string? apiKey, CancellationToken cancellationToken)
+    private async Task DrainRevocationAsync(Plugin plugin, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            ResetRevokeBackoff();
-            return RevokeStep.Done;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        if (now < _nextRevokeAttempt)
-        {
-            return RevokeStep.Wait;
-        }
-
+        var credentials = plugin.Credentials;
+        var pending = credentials.NextRevocation;
+        if (pending is null || DateTimeOffset.UtcNow < pending.NextAttemptAt) return;
         bool revoked;
         try
         {
-            revoked = await _client.RevokeAsync(config, apiKey, cancellationToken).ConfigureAwait(false);
+            revoked = await _client.RevokeAsync(
+                new Configuration.PluginConfiguration { SesnBaseUrl = pending.BaseUrl },
+                pending.ApiKey, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -201,28 +173,16 @@ public sealed class PairingService : BackgroundService
             revoked = false;
         }
 
-        if (revoked)
+        var failures = pending.Failures + 1;
+        if (revoked || failures >= MaxRevokeAttempts)
         {
-            ResetRevokeBackoff();
-            return RevokeStep.Done;
+            credentials.CompleteRevocation(pending.Id);
+            plugin.RefreshCredentialStatus(revoked ? null : GaveUpMessage);
+            return;
         }
 
-        _revokeFailures++;
-        if (_revokeFailures >= MaxRevokeAttempts)
-        {
-            _logger.LogWarning("Sesn could not be reached to revoke this server's key after {Attempts} attempts; forgetting it locally", _revokeFailures);
-            ResetRevokeBackoff();
-            return RevokeStep.GaveUp;
-        }
-
-        var delay = TimeSpan.FromSeconds(Math.Min(MaxRevokeDelaySeconds, 5 * Math.Pow(2, _revokeFailures - 1)));
-        _nextRevokeAttempt = now + delay;
-        return RevokeStep.Wait;
-    }
-
-    private void ResetRevokeBackoff()
-    {
-        _revokeFailures = 0;
-        _nextRevokeAttempt = DateTimeOffset.MinValue;
+        var delay = TimeSpan.FromSeconds(Math.Min(MaxRevokeDelaySeconds, 5 * Math.Pow(2, failures - 1)));
+        credentials.DelayRevocation(pending.Id, failures, DateTimeOffset.UtcNow + delay);
+        plugin.RefreshCredentialStatus();
     }
 }

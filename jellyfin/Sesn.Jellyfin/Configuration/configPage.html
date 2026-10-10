@@ -9,11 +9,12 @@
         <div data-role="content">
             <div class="content-primary">
                 <h1>Sesn</h1>
-                <p>Securely track Jellyfin playback on Sesn. Only users you choose are sent; everyone else stays on this server.</p>
+                <p>Securely track Jellyfin playback on Sesn. Single-viewer mode sends only your selected viewer’s identity and playback. Household setup shares local viewer names for mapping; playback uses Sesn’s most recently confirmed viewer choices.</p>
                 <form id="SesnConfigForm">
                     <div id="HouseholdNote" style="display:none;margin:1em 0;padding:1em;border:1px solid rgba(255,255,255,.18);border-radius:.4em">
-                        <p style="margin-top:0"><strong>Everyone on this server is set up on Sesn.</strong> <span id="TrackedCount"></span></p>
-                        <p style="margin-bottom:0">Choose who is tracked, add a child account or invite someone at <a href="https://sesn.io/connections/jellyfin" target="_blank" rel="noopener">sesn.io/connections/jellyfin</a>. Changes reach this server within five minutes.</p>
+                        <p style="margin-top:0"><strong>Household viewer mapping is managed on Sesn.</strong> <span id="TrackedCount"></span></p>
+                        <p id="ViewerPermissionStatus" role="status"></p>
+                        <p style="margin-bottom:0">Choose who is tracked, add a child account or invite someone at <a href="https://sesn.io/connections/jellyfin" target="_blank" rel="noopener">sesn.io/connections/jellyfin</a>. Viewer choices refresh about every five minutes. Household playback pauses if no refresh succeeds within six minutes, then resumes automatically after permission is confirmed.</p>
                     </div>
                     <div class="selectContainer" id="ViewerContainer">
                         <label class="selectLabel" for="JellyfinUserId">Jellyfin viewer</label>
@@ -36,6 +37,13 @@
                         <button is="emby-button" type="button" class="raised block" id="PairButton"><span>Connect to Sesn</span></button>
                         <button is="emby-button" type="button" class="raised block" id="DisconnectButton" style="display:none"><span>Disconnect</span></button>
                     </div>
+                    <div id="CompletionPanel" role="status" style="margin:1.25em 0">
+                        <p id="CompletionCounts"></p>
+                        <p id="CompletionAccepted"></p>
+                        <p id="CompletionWarning"></p>
+                        <p class="fieldDescription">A completed title may remain on its live playback card until that activity expires.</p>
+                        <p class="fieldDescription">Completed watches retry safely for up to seven days (500 stored records maximum). Earlier watches without captured connection permission stay held. Use Sync from your server on sesn.io to recover failed, held or expired watches.</p>
+                    </div>
                     <button is="emby-button" type="submit" class="raised button-submit block emby-button"><span>Save viewer settings</span></button>
                 </form>
             </div>
@@ -44,6 +52,7 @@
             (function () {
                 var pluginId = 'd214481e-2ec6-4b17-91db-b45b705a06aa';
                 var timer;
+                var visible = false;
                 var page = document.querySelector('#SesnConfigPage');
 
                 function selectedName() {
@@ -51,13 +60,15 @@
                     return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
                 }
 
-                function paint(config) {
+                function paint(config, preserveSettings) {
                     var status = document.querySelector('#PairingStatus');
                     var codePanel = document.querySelector('#PairingCodePanel');
                     var pair = document.querySelector('#PairButton');
                     var disconnect = document.querySelector('#DisconnectButton');
-                    document.querySelector('#Enabled').checked = config.Enabled !== false;
-                    if (config.JellyfinUserId) document.querySelector('#JellyfinUserId').value = config.JellyfinUserId;
+                    if (!preserveSettings) {
+                        document.querySelector('#Enabled').checked = config.Enabled !== false;
+                        if (config.JellyfinUserId) document.querySelector('#JellyfinUserId').value = config.JellyfinUserId;
+                    }
                     var busy = config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting';
                     var hasCredential = !!config.HasCredential;
                     var rejected = config.PairingStatus === 'rejected';
@@ -66,6 +77,8 @@
                     document.querySelector('#HouseholdNote').style.display = household ? 'block' : 'none';
                     document.querySelector('#ViewerContainer').style.display = household ? 'none' : 'block';
                     var tracked = (config.TrackedViewerIds || []).length;
+                    document.querySelector('#ViewerPermissionStatus').textContent = config.HouseholdPlaybackPaused
+                        ? 'Playback paused: viewer permissions need refreshing. Retrying automatically.' : '';
                     document.querySelector('#TrackedCount').textContent = tracked === 1 ? '1 user is tracked.' : tracked + ' users are tracked.';
                     disconnect.style.display = hasCredential ? 'block' : 'none';
                     pair.style.display = hasCredential && !rejected ? 'none' : 'block';
@@ -74,12 +87,23 @@
                     if (config.PairingStatus === 'connected') status.textContent = 'Connected to Sesn';
                     else if (config.PairingStatus === 'pending') status.textContent = 'Waiting for you to approve this Jellyfin server';
                     else if (config.PairingStatus === 'starting') status.textContent = 'Creating a secure pairing code…';
-                    else if (config.PairingStatus === 'disconnecting') status.textContent = 'Revoking this connection…';
+                    else if (config.PairingStatus === 'disconnecting') status.textContent = 'Disconnected locally. Remote key revocation is pending…';
                     else if (config.PairingStatus === 'expired') status.textContent = 'That code expired. Start again.';
                     else if (config.PairingStatus === 'error') status.textContent = 'Sesn could not start pairing. Try again.';
                     else if (rejected) status.textContent = 'Sesn no longer accepts this server\'s key, so nothing is being sent. Connect again.';
                     else if (config.LastDeliveryStatus) status.textContent = 'Not connected. ' + config.LastDeliveryStatus;
                     else status.textContent = 'Not connected';
+                    if (config.RevocationPending && config.PairingStatus !== 'disconnecting') status.textContent += ' Previous key revocation is pending.';
+                    if (config.RevocationWarning) status.textContent += ' ' + config.RevocationWarning;
+                    document.querySelector('#CompletionCounts').textContent =
+                        (config.PendingCompletions || 0) + ' pending · ' +
+                        (config.HeldCompletions || 0) + ' held · ' +
+                        (config.FailedCompletions || 0) + ' failed · ' +
+                        (config.ExpiredCompletions || 0) + ' expired';
+                    document.querySelector('#CompletionAccepted').textContent = config.LastDeliveredAtUtc
+                        ? 'Last completed watch accepted by Sesn: ' + new Date(config.LastDeliveredAtUtc).toLocaleString()
+                        : 'No completed watch has been confirmed for this connection.';
+                    document.querySelector('#CompletionWarning').textContent = config.LastCompletionStatus || '';
                     document.querySelector('#UserCode').textContent = config.UserCode || '';
                     var link = document.querySelector('#VerificationUrl');
                     link.href = config.VerificationUrl || 'https://sesn.io/link';
@@ -87,17 +111,21 @@
 
                 function refresh() {
                     return ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        paint(config);
-                        if (config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting') {
+                        if (!visible) return;
+                        paint(config, true);
+                        if (config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting' || config.PairingStatus === 'connected') {
                             clearTimeout(timer);
-                            timer = setTimeout(refresh, 3000);
+                            timer = setTimeout(refresh, config.PairingStatus === 'connected' ? 10000 : 3000);
                         }
                     });
                 }
 
                 page.addEventListener('pageshow', function () {
+                    visible = true;
+                    clearTimeout(timer);
                     Dashboard.showLoadingMsg();
                     Promise.all([ApiClient.getUsers(), ApiClient.getPluginConfiguration(pluginId)]).then(function (values) {
+                        if (!visible) return;
                         var users = values[0];
                         var config = values[1];
                         var select = document.querySelector('#JellyfinUserId');
@@ -111,11 +139,11 @@
                         if (config.JellyfinUserId) select.value = config.JellyfinUserId;
                         paint(config);
                         Dashboard.hideLoadingMsg();
-                        if (config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting') timer = setTimeout(refresh, 3000);
+                        if (config.PairingStatus === 'starting' || config.PairingStatus === 'pending' || config.PairingStatus === 'disconnecting' || config.PairingStatus === 'connected') timer = setTimeout(refresh, config.PairingStatus === 'connected' ? 10000 : 3000);
                     });
                 });
 
-                page.addEventListener('pagehide', function () { clearTimeout(timer); });
+                page.addEventListener('pagehide', function () { visible = false; clearTimeout(timer); });
 
                 document.querySelector('#PairButton').addEventListener('click', function () {
                     Dashboard.showLoadingMsg();

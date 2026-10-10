@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Sesn.Jellyfin.Configuration;
 
@@ -91,6 +92,38 @@ public sealed class SesnApiClient
         return (int)response.StatusCode;
     }
 
+    /// <summary>Sends only to the versioned completion endpoint; an ambiguous reply is never an acknowledgement.</summary>
+    public async Task<CompletionResponse> SendCompletionAsync(PluginConfiguration config, string apiKey, PendingCompletion item, CancellationToken cancellationToken)
+    {
+        var uri = BuildUri(config, "/api/v1/webhooks/jellyfin/events");
+        if (uri is null) return new(CompletionDisposition.Retry, 0, "The Sesn address is not allowed.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        // ResponseHeadersRead does not keep HttpClient.Timeout active while reading
+        // a slow/chunked body. Bound that phase explicitly as well.
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var requestToken = timeout.Token;
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        {
+            Content = new StringContent(item.Payload, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestToken).ConfigureAwait(false);
+        var status = (int)response.StatusCode;
+        int? retryAfter = response.Headers.RetryAfter?.Delta is { } delta ? (int)Math.Clamp(delta.TotalSeconds, 0, 3600)
+            : response.Headers.RetryAfter?.Date is { } date ? (int)Math.Clamp((date - DateTimeOffset.UtcNow).TotalSeconds, 0, 3600) : null;
+        // Bound even an untrusted/chunked response before JSON parsing.
+        using var stream = await response.Content.ReadAsStreamAsync(requestToken).ConfigureAwait(false);
+        var buffer = new byte[8193];
+        var count = 0;
+        while (count < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(count), requestToken).ConfigureAwait(false);
+            if (read == 0) break;
+            count += read;
+        }
+        return CompletionResponse.Classify(status, count <= 8192 ? Encoding.UTF8.GetString(buffer, 0, count) : string.Empty, item.EventId, retryAfter);
+    }
+
     /// <summary>
     /// Reports this server's local users so the owner can map them on sesn.io, and
     /// returns which of them Sesn accepts playback for. Unlisted users never leave the server.
@@ -180,4 +213,8 @@ public sealed record LinkPollResponse(
     [property: System.Text.Json.Serialization.JsonPropertyName("api_key")] string? ApiKey);
 
 /// <summary>Response from the viewer report endpoint.</summary>
-public sealed record ViewerReport(bool Household, string[]? Tracked);
+public sealed record ViewerReport(
+    bool Household, string[]? Tracked,
+    [property: System.Text.Json.Serialization.JsonPropertyName("durable_completion")] int DurableCompletion = 0,
+    [property: System.Text.Json.Serialization.JsonPropertyName("credential_generation")] string? CredentialGeneration = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("mapping_generations")] Dictionary<string, string>? MappingGenerations = null);

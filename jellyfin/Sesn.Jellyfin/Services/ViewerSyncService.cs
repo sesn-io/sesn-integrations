@@ -7,8 +7,9 @@ namespace Sesn.Jellyfin.Services;
 
 /// <summary>
 /// Keeps Sesn's list of this server's users current and learns which of them
-/// are tracked. Household mapping itself happens on sesn.io; this only reports
-/// user names and ids — never libraries, history or anything else.
+/// are tracked. Solo mode reports only the selected local identity. An
+/// authenticated household-mode response permits discovery of local names/ids
+/// for mapping on sesn.io; this never reports libraries or history.
 /// </summary>
 public sealed class ViewerSyncService : BackgroundService
 {
@@ -62,13 +63,8 @@ public sealed class ViewerSyncService : BackgroundService
     private async Task<bool> TickAsync(CancellationToken cancellationToken)
     {
         var plugin = Plugin.Instance;
-        var config = plugin?.Configuration;
-        var apiKey = plugin?.Credentials.ApiKey;
-        if (plugin is null || config is null || string.IsNullOrWhiteSpace(apiKey) ||
-            !string.Equals(config.PairingStatus, "connected", StringComparison.Ordinal))
-        {
-            return true;
-        }
+        if (plugin is null || !plugin.TryGetDelivery(out var state, out var apiKey)) return true;
+        var config = state.Configuration;
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (now - config.ViewersSyncedAt < (long)Interval.TotalSeconds)
@@ -76,12 +72,18 @@ public sealed class ViewerSyncService : BackgroundService
             return true;
         }
 
-        var viewers = _userManager.GetUsers().Select(user => (NormalizeId(user.Id.ToString()), user.Username)).ToList();
-        var (report, status) = await _client.ReportViewersAsync(config, apiKey, _applicationHost.SystemId, _applicationHost.FriendlyName, viewers, cancellationToken)
+        var selectedViewer = string.IsNullOrWhiteSpace(config.JellyfinUserId) ? null : NormalizeId(config.JellyfinUserId);
+        // A missing/removed solo selection is not permission to discover everyone.
+        // Household is server-owned and learned only from an authenticated reply.
+        var viewers = _userManager.GetUsers()
+            .Where(user => config.Household || (selectedViewer is not null && NormalizeId(user.Id.ToString()) == selectedViewer))
+            .Select(user => (NormalizeId(user.Id.ToString()), user.Username)).ToList();
+        using var delivery = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.CancellationToken);
+        var (report, status) = await _client.ReportViewersAsync(config, apiKey, _applicationHost.SystemId, _applicationHost.FriendlyName, viewers, delivery.Token)
             .ConfigureAwait(false);
         if (status == 401)
         {
-            plugin.MarkCredentialRejected();
+            plugin.MarkCredentialRejected(state);
             return false;
         }
 
@@ -90,10 +92,7 @@ public sealed class ViewerSyncService : BackgroundService
             return false;
         }
 
-        config.Household = report.Household;
-        config.TrackedViewerIds = (report.Tracked ?? []).Select(NormalizeId).Distinct().ToArray();
-        config.ViewersSyncedAt = now;
-        plugin.SaveConfiguration();
+        plugin.ApplyViewerReport(state, apiKey, report, now);
         return true;
     }
 }
