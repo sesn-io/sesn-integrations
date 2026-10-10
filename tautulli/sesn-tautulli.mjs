@@ -21,6 +21,7 @@ import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const VERSION = '1.1.1';
 const CONFIG = join(dirname(fileURLToPath(import.meta.url)), 'sesn-tautulli.json');
@@ -53,17 +54,18 @@ const fail = (message) => { console.error(`\n✖ ${message}`); process.exit(1); 
 
 // The Sesn key is only ever sent over https (plain http is allowed to this
 // machine for local testing). A host other than sesn.io is allowed but warned.
-function sesnOrigin(value) {
+function sesnOrigin(value, warn = true) {
   const raw = (value || 'https://sesn.io').trim().replace(/\/+$/, '');
   let url;
-  try { url = new URL(raw); } catch { fail(`SESN_URL is not a valid URL: ${raw}`); }
+  try { url = new URL(raw); } catch { fail('SESN_URL is not a valid origin.'); }
   const host = url.hostname.toLowerCase();
   const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
   if (!(url.protocol === 'https:' || (url.protocol === 'http:' && loopback))) {
-    fail(`SESN_URL must start with https:// (http:// is only allowed for localhost): ${raw}`);
+    fail('SESN_URL must start with https:// (http:// is only allowed for localhost).');
   }
-  if (!loopback && host !== 'sesn.io' && !host.endsWith('.sesn.io')) {
-    console.warn(`⚠ SESN_URL points at ${host}, not sesn.io. Your Sesn key will be sent there.`);
+  if (url.username || url.password || url.search || url.hash || url.pathname !== '/') fail('SESN_URL must contain only an origin, without credentials, a path, query or fragment.');
+  if (warn && !loopback && host !== 'sesn.io' && !host.endsWith('.sesn.io')) {
+    console.warn(`⚠ SESN_URL points at ${host}, not sesn.io. Use only an origin you trust; saved keys remain bound to their original origin.`);
   }
   return url.origin;
 }
@@ -71,15 +73,108 @@ const SESN = sesnOrigin(process.env.SESN_URL);
 const load = () => (existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, 'utf8')) : {});
 const save = (config) => { writeFileSync(CONFIG, `${JSON.stringify(config, null, 2)}\n`); try { chmodSync(CONFIG, 0o600); } catch { /* Windows */ } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fingerprint = (key) => createHash('sha256').update(key).digest('hex');
+const validId = (value) => /^(?:[1-9][0-9]*)$/.test(String(value)) && Number.isSafeInteger(Number(value));
+const webhook = (config) => `${config.sesnOrigin}/api/v1/webhooks/tautulli`;
+
+function tautulliBase(value) {
+  let url;
+  try { url = new URL(value); } catch { fail('The Tautulli address must be an absolute http:// or https:// URL.'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    fail('The Tautulli address must use http:// or https:// without credentials, a query or fragment.');
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+function assertSavedBindings(config) {
+  if (((config.sesnKey || config.notifierId) && !config.sesnOrigin) || (config.tautulliApiKey && !config.tautulliKeyUrl)) {
+    fail('This saved configuration has no credential origin binding and cannot be reused. No credentials were sent. Manually remove any old agent in Tautulli and revoke its pairing in Sesn, then remove sesn-tautulli.json and run setup for a fresh pairing.');
+  }
+  if (config.sesnOrigin && (sesnOrigin(config.sesnOrigin, false) !== config.sesnOrigin || config.sesnOrigin !== SESN)) {
+    fail('SESN_URL does not match the saved pairing origin. Restore the original SESN_URL; remove that pairing before setting up a different origin.');
+  }
+  if (config.tautulliApiKey && tautulliBase(config.tautulliUrl) !== config.tautulliKeyUrl) {
+    fail('The Tautulli address does not match the saved credential binding. Restore the original address before continuing.');
+  }
+}
+
+function notifierProof(config) {
+  return { notifierId: String(config.notifierId), tautulliUrl: config.tautulliKeyUrl,
+    serverId: config.serverId, hook: webhook(config), credentialHash: fingerprint(config.sesnKey) };
+}
+
+function assertNotifierProof(config) {
+  const proof = config.notifierProof;
+  if (!validId(config.notifierId) || !proof || proof.notifierId !== String(config.notifierId)
+    || proof.tautulliUrl !== config.tautulliKeyUrl || proof.serverId !== config.serverId
+    || typeof config.serverId !== 'string' || !config.serverId || proof.hook !== webhook(config)
+    || !/^[a-f0-9]{64}$/.test(proof.credentialHash)
+    || config.sesnKey && proof.credentialHash !== fingerprint(config.sesnKey)) {
+    throw new Error('Saved Tautulli agent ownership is unverified. Review and clean up the agent manually before removing the saved configuration and running setup for a fresh pairing.');
+  }
+  return proof;
+}
+
+async function assertServerIdentity(config) {
+  const identity = await tautulli(config, 'get_server_identity');
+  if (!config.serverId || (Array.isArray(identity) ? identity[0] : identity)?.machine_identifier !== config.serverId) {
+    throw new Error('Tautulli now reports a different Plex server. Restore the original server or review its agents manually.');
+  }
+}
+
+function agentCredentialMatches(agent, hash) {
+  if (!agent.actions || typeof agent.actions !== 'object' || Array.isArray(agent.actions)
+    || !agent.notify_text || typeof agent.notify_text !== 'object' || Array.isArray(agent.notify_text)) return false;
+  let checked = 0;
+  for (const trigger of new Set([...Object.keys(agent.actions), ...Object.keys(agent.notify_text)])) {
+    const enabled = agent.actions[trigger];
+    const subject = agent.notify_text[trigger]?.subject;
+    if (enabled !== 0 && enabled !== 1) return false;
+    if (!enabled && !subject) continue;
+    if (typeof subject !== 'string' || subject.length > 4096) return false;
+    let headers;
+    try { headers = JSON.parse(subject); } catch { return false; }
+    if (!headers || typeof headers !== 'object' || Array.isArray(headers)) return false;
+    const keys = Object.entries(headers).filter(([name]) => name.toLowerCase() === 'x-api-key');
+    if (keys.length !== 1 || typeof keys[0][1] !== 'string' || !keys[0][1] || keys[0][1].length > 512
+      || fingerprint(keys[0][1]) !== hash) return false;
+    checked++;
+  }
+  return checked > 0;
+}
+
+async function assertNotifierOwnership(config, newlyCreated = false) {
+  const proof = assertNotifierProof(config);
+  await assertServerIdentity(config);
+  const agent = await tautulli(config, 'get_notifier_config', { notifier_id: config.notifierId });
+  const sameAgent = agent && String(agent.id ?? agent.notifier_id) === proof.notifierId && agent.agent_id === WEBHOOK_AGENT_ID;
+  // Only this invocation's newly created, still-empty agent may be initialized.
+  // A saved id alone can never authorize replacing an existing configuration.
+  const emptyNewAgent = newlyCreated && sameAgent && agent.config?.hook === ''
+    && agent.actions && Object.keys(agent.actions).length > 0 && Object.values(agent.actions).every(value => value === 0)
+    && agent.notify_text && Object.values(agent.notify_text).every(text => !text.subject && !text.body);
+  if (!emptyNewAgent && !(sameAgent && agent.config?.hook === proof.hook && agent.config?.method === 'POST'
+    && agentCredentialMatches(agent, proof.credentialHash))) {
+    throw new Error('Tautulli agent ownership changed or could not be verified. Review the saved agent in Tautulli; its settings were not changed.');
+  }
+}
+
+async function notifierAbsent(config) {
+  await assertServerIdentity(config);
+  const agents = await tautulli(config, 'get_notifiers');
+  return Array.isArray(agents) && agents.every(agent => agent && validId(agent.id ?? agent.notifier_id))
+    && !agents.some(agent => String(agent.id ?? agent.notifier_id) === String(config.notifierId));
+}
 
 async function tautulli(config, cmd, params = {}, method = 'GET') {
+  assertSavedBindings(config);
   const url = new URL(`${config.tautulliUrl}/api/v2`);
   url.searchParams.set('cmd', cmd);
   const body = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
   if (method === 'GET') for (const [k, v] of body) url.searchParams.set(k, v);
   const response = await fetch(url, {
     method, headers: { 'X-Api-Key': config.tautulliApiKey, ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) },
-    body: method === 'POST' ? body : undefined, signal: AbortSignal.timeout(15000),
+    body: method === 'POST' ? body : undefined, signal: AbortSignal.timeout(15000), redirect: 'error',
   }).catch((error) => { throw new Error(`Could not reach Tautulli at ${config.tautulliUrl} (${error.message}).`); });
   const json = await response.json().catch(() => null);
   const out = json?.response;
@@ -87,7 +182,9 @@ async function tautulli(config, cmd, params = {}, method = 'GET') {
   return out.data;
 }
 
-async function sesn(path, body, key) {
+async function sesn(path, body, config) {
+  if (config) assertSavedBindings(config);
+  const key = config?.sesnKey;
   const response = await fetch(`${SESN}${path}`, {
     method: 'POST', signal: AbortSignal.timeout(15000), redirect: 'error', // never forward the key elsewhere
     headers: { 'content-type': 'application/json', 'user-agent': `Sesn-Tautulli/${VERSION}`, ...(key ? { 'x-api-key': key } : {}) },
@@ -98,7 +195,7 @@ async function sesn(path, body, key) {
 }
 
 async function ask(config) {
-  // Environment variables allow unattended runs; otherwise prompt line by line
+  // Environment variables skip address/key prompts; otherwise prompt line by line
   // (readline's question() drops answers when input is piped).
   let url = process.env.TAUTULLI_URL;
   let key = process.env.TAUTULLI_API_KEY;
@@ -111,7 +208,9 @@ async function ask(config) {
     rl.close();
   }
   if (!key) fail('A Tautulli API key is required.');
-  return { ...config, tautulliUrl: url.replace(/\/+$/, ''), tautulliApiKey: key };
+  const base = tautulliBase(url);
+  if (config.tautulliKeyUrl && base !== config.tautulliKeyUrl) fail('TAUTULLI_URL does not match the saved credential binding. Remove the original setup before changing servers.');
+  return { ...config, tautulliUrl: base, tautulliKeyUrl: base, tautulliApiKey: key };
 }
 
 async function pair(serverName) {
@@ -134,15 +233,15 @@ async function report(config) {
     .map((u) => ({ id: String(u.user_id), name: u.friendly_name || u.username || String(u.user_id) }));
   const result = await sesn('/api/v1/connections/viewers', {
     provider: 'tautulli', server_id: config.serverId, server_name: config.serverName, viewers,
-  }, config.sesnKey);
+  }, config);
   if (result.status === 401) fail('Sesn no longer accepts this pairing. Run setup again.');
   if (result.status !== 200) fail(`Sesn did not accept the user list (${result.status}): ${result.json.error ?? ''}`);
   return { viewers, tracked: result.json.tracked ?? [] };
 }
 
-async function applyNotifier(config, tracked) {
-  // Only tracked playback triggers the agent. Viewer names/IDs are separately
-  // reported by report(), including identities whose playback is not tracked.
+async function applyNotifier(config, tracked, newlyCreated = false) {
+  await assertNotifierOwnership(config, newlyCreated);
+  // Only tracked users trigger playback; viewer discovery is reported separately.
   // An empty list uses an impossible id so nothing is sent until you choose.
   const conditions = [
     { parameter: 'user_id', operator: 'is', value: tracked.length ? tracked : ['-1'], type: 'int' },
@@ -150,7 +249,7 @@ async function applyNotifier(config, tracked) {
   ];
   const params = {
     notifier_id: config.notifierId, agent_id: WEBHOOK_AGENT_ID, friendly_name: 'Sesn',
-    webhook_hook: `${SESN}/api/v1/webhooks/tautulli`, webhook_method: 'POST',
+    webhook_hook: webhook(config), webhook_method: 'POST',
     custom_conditions: JSON.stringify(conditions), custom_conditions_logic: '{1} and {2}',
   };
   for (const trigger of TRIGGERS) {
@@ -162,22 +261,32 @@ async function applyNotifier(config, tracked) {
 }
 
 async function setup() {
-  let config = await ask(load());
+  const saved = load();
+  assertSavedBindings(saved);
+  if (saved.notifierId) assertNotifierProof(saved);
+  const config = await ask(saved);
   const identity = await tautulli(config, 'get_server_identity');
   const info = await tautulli(config, 'get_server_info').catch(() => ({}));
-  config.serverId = (Array.isArray(identity) ? identity[0] : identity)?.machine_identifier;
+  const serverId = (Array.isArray(identity) ? identity[0] : identity)?.machine_identifier;
+  if (config.serverId && config.serverId !== serverId) fail('Tautulli now reports a different Plex server. Restore the original server before continuing.');
+  config.serverId = serverId;
   config.serverName = info?.pms_name || 'Plex';
   if (!config.serverId) fail('Tautulli did not report a Plex server id. Check Tautulli is connected to Plex.');
   say(`Connected to Tautulli for “${config.serverName}”.`);
-  if (!config.sesnKey) { config.sesnKey = await pair(config.serverName); save(config); say('Paired with Sesn.'); }
+  if (config.notifierId && !config.sesnKey) fail('A previous removal is incomplete. Run remove again or review the remaining agent manually before setup.');
+  if (config.notifierId) await assertNotifierOwnership(config);
+  if (!config.sesnKey) { config.sesnKey = await pair(config.serverName); config.sesnOrigin = SESN; save(config); say('Paired with Sesn.'); }
+  const { viewers, tracked } = await report(config);
+  let newlyCreated = false;
   if (!config.notifierId) {
     const added = await tautulli(config, 'add_notifier_config', { agent_id: WEBHOOK_AGENT_ID }, 'POST');
     config.notifierId = added?.notifier_id ?? added;
-    if (!config.notifierId) fail('Tautulli did not return the new agent id.');
+    if (!validId(config.notifierId)) fail('Tautulli did not return a valid new agent id.');
+    config.notifierProof = notifierProof(config);
     save(config);
+    newlyCreated = true;
   }
-  const { viewers, tracked } = await report(config);
-  await applyNotifier(config, tracked);
+  await applyNotifier(config, tracked, newlyCreated);
   save(config);
   say('', `Reported ${viewers.length} Tautulli users to Sesn. ${tracked.length} ${tracked.length === 1 ? 'is' : 'are'} tracked right now.`,
     `Choose who is tracked at ${SESN}/connections/tautulli, then run:  node sesn-tautulli.mjs sync`,
@@ -186,7 +295,9 @@ async function setup() {
 
 async function sync() {
   const config = load();
+  assertSavedBindings(config);
   if (!config.sesnKey || !config.notifierId) fail('Run setup first.');
+  await assertNotifierOwnership(config);
   const { viewers, tracked } = await report(config);
   await applyNotifier(config, tracked);
   say(`Reported ${viewers.length} users. Tautulli now sends playback for ${tracked.length} tracked ${tracked.length === 1 ? 'user' : 'users'}.`);
@@ -194,24 +305,30 @@ async function sync() {
 
 async function remove() {
   const config = load();
+  assertSavedBindings(config);
   const pending = [];
   if (config.notifierId) {
     let removed = false;
     try {
-      await tautulli(config, 'delete_notifier', { notifier_id: config.notifierId }, 'POST');
+      assertNotifierProof(config);
+      if (!await notifierAbsent(config)) {
+        await assertNotifierOwnership(config);
+        await tautulli(config, 'delete_notifier', { notifier_id: config.notifierId }, 'POST');
+      }
       removed = true;
     } catch {
       // A previous attempt may have deleted it before its response was lost.
       // Only a successful explicit listing can confirm that it is absent.
       try {
-        const agents = await tautulli(config, 'get_notifiers');
-        removed = Array.isArray(agents) && agents.every(agent => agent && agent.notifier_id != null)
-          && !agents.some(agent => String(agent.notifier_id) === String(config.notifierId));
+        assertNotifierProof(config);
+        removed = await notifierAbsent(config);
       } catch { /* retain the local cleanup handle */ }
     }
     if (removed) {
       delete config.notifierId;
+      delete config.notifierProof;
       delete config.tautulliApiKey;
+      delete config.tautulliKeyUrl;
       save(config);
     } else pending.push('Tautulli agent removal');
   }
@@ -219,7 +336,7 @@ async function remove() {
   if (config.sesnKey) {
     let revoked = false;
     try {
-      const result = await sesn('/api/v1/link/revoke', {}, config.sesnKey);
+      const result = await sesn('/api/v1/link/revoke', {}, config);
       revoked = result.status === 401 || (result.status === 200 && result.json.ok === true);
     } catch { /* retain the key securely for an explicit retry */ }
     if (revoked) { delete config.sesnKey; save(config); }
@@ -227,7 +344,7 @@ async function remove() {
   }
   if (pending.length) {
     save(config);
-    fail(`Removal is incomplete: ${pending.join(' and ')} could not be confirmed. Saved retry information is retained locally. Run remove again when the service is reachable.`);
+    fail(`Removal is incomplete: ${pending.join(' and ')} could not be confirmed. Saved retry information is retained locally. Restore the original destinations and review the agent in Tautulli if its ownership changed; otherwise run remove again when the service is reachable.`);
   }
   save({ tautulliUrl: config.tautulliUrl });
   say('The Sesn agent is removed from Tautulli and the pairing is no longer active. Your Sesn history is unchanged.');

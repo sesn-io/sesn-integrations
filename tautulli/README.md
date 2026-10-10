@@ -10,6 +10,15 @@ For browser-assisted setup instead, open
 be able to reach your Tautulli server; its API key is used directly with that
 server and is not sent to Sesn.
 
+## Source-only safety changes
+
+The current source binds saved credentials to their original destinations and
+verifies notification-agent ownership before changing or deleting an agent.
+These protections are not a claim about the separately hosted script or the
+browser-assisted setup. Updating this repository does not publish either one.
+An existing configuration without bindings is rejected; it is never migrated
+or adopted. Follow [Remove and recover](#remove-and-recover) before fresh setup.
+
 ## Requirements
 
 - A working Tautulli server connected to Plex, reachable from the machine running the script.
@@ -40,8 +49,10 @@ The script does not continually refresh mappings on its own.
 
 ## Hosted download
 
-The hosted script is a separately published copy and may lag this source. To use
-that copy in a new directory:
+The hosted script is a separately published copy and may lag this source. Do not
+assume it has the credential-binding and ownership protections described here.
+For those protections, use the source checkout above until a matching hosted
+copy has been published and verified. To use the hosted copy in a new directory:
 
 ```sh
 curl --fail --location --output sesn-tautulli.mjs https://sesn.io/downloads/tautulli/sesn-tautulli.mjs
@@ -68,9 +79,17 @@ configuration and do not replace those saved values from the environment.
 
 `SESN_URL` defaults to `https://sesn.io`. It requires HTTPS, except for loopback
 HTTP testing, and warns for external non-Sesn hosts. Use the same trusted
-`SESN_URL` for setup, sync and removal: the configurator does not save/bind this
-origin in its configuration. Do not point an existing configuration at another
-server. Use HTTPS or a trusted local network for the Tautulli address as well.
+`SESN_URL` for setup, sync and removal. A fresh pairing binds the Sesn key to its
+canonical origin (scheme, host and port); the Tautulli key is bound to its base
+URL, including the path. Changed destinations are rejected before saved keys
+are sent. Credential-bearing requests never follow redirects. Remove the
+original setup before choosing another origin or server. Use HTTPS or a trusted
+local network for the Tautulli address as well.
+
+Before updating or deleting a saved agent, the configurator checks the Plex
+server identity and the live agent's ID, webhook type, destination, method and
+credential fingerprint. A name such as “Sesn” or a saved ID alone is not proof of
+ownership. A saved empty agent is not adopted, even after interrupted setup.
 
 ## Remove and recover
 
@@ -81,12 +100,20 @@ node tautulli/sesn-tautulli.mjs remove
 ```
 
 For the standalone download, use `node sesn-tautulli.mjs remove` beside that copy.
-The current source independently deletes the Tautulli agent and revokes the Sesn
-pairing. An unconfirmed step exits unsuccessfully and retains only the local
-information needed to retry. Restore connectivity and run `remove` again with
-the original Sesn address. Do not delete the configuration while cleanup is
-pending. If manual cleanup is needed, remove the agent in Tautulli and revoke the
-connection on sesn.io. Removing the integration does not delete Sesn history.
+For a bound configuration, the current source independently removes its verified
+Tautulli agent and revokes the Sesn pairing. An unconfirmed step exits
+unsuccessfully and retains the local information needed to retry, including the
+agent fingerprint if revocation succeeded first. Restore connectivity and run
+`remove` again with the original destinations. If ownership changed or an empty
+agent remains after interrupted setup, review it manually in Tautulli rather than
+editing the saved ID or binding fields. Keep the configuration until cleanup is
+complete. Removing the integration does not delete Sesn history.
+
+For an older configuration without bindings, all commands stop before sending
+credentials. There is no migration or adoption command. Manually remove the old
+agent in Tautulli and revoke its pairing on Sesn; only after cleanup, remove
+`sesn-tautulli.json` and run `setup` for a fresh provider-specific pairing. Do not
+copy an unscoped API key into a new configuration or add binding fields by hand.
 
 Use one selected live source per Plex server, either native Plex webhooks or
 Tautulli, as configured on sesn.io. Source selection and duplicate prevention are
@@ -100,7 +127,9 @@ From the repository root with Node.js 24:
 node --test tautulli/tests/*.test.mjs
 ```
 
-The tests use synthetic responses and in-memory configuration. They cover
-setup/sync filtering, data-template identity, independent cleanup and retry
-retention without contacting Tautulli, Plex or Sesn. Installed-server behavior
-and the separately hosted download still need release-time verification.
+The tests use synthetic responses, in-memory configuration and loopback-only
+HTTP fixtures. They cover setup/sync filtering, data-template identity, origin
+binding, live agent ownership, rejected legacy adoption, independent cleanup,
+retry retention and redirect refusal without contacting real Tautulli, Plex or
+Sesn services. Installed-server behavior and the separately hosted download
+still need release-time verification.

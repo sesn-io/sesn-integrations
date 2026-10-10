@@ -9,8 +9,11 @@ Stremio/Nuvio service are maintained separately; their source is not included he
 
 **The latest source is ahead of the published clients.** Kodi's account-bound
 SQLite outbox and Jellyfin's durable completion/connection-ownership changes are
-unreleased. They require compatible backend endpoints and installed-device
-acceptance before a new release. Updating `main` does not update installed clients.
+unreleased. The Tautulli source also adds saved credential bindings and verified
+notification-agent ownership; the separately hosted script may not include them.
+These changes require compatible backend endpoints and installed-device
+acceptance before release. Updating `main` does not update installed clients,
+the `kodi-repo` branch or files hosted on sesn.io.
 
 | Client | Published version | Source and setup |
 |---|---|---|
@@ -57,6 +60,10 @@ administrators and anyone who can read local credential files may access them.
 Sesn requests require HTTPS except for explicit loopback HTTP development.
 Custom HTTPS Sesn origins receive the Sesn credential. Use only a server you trust;
 changing an address is not a way to migrate queued watches between accounts.
+The current Tautulli source binds saved keys to their original destinations and
+does not adopt older unbound configurations. Use fresh, provider-specific pairing
+for Kodi and Tautulli; older unscoped keys are not a supported setup path. See the
+individual guides for cleanup before pairing again.
 
 ## Development checks
 

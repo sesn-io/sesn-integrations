@@ -10,7 +10,10 @@ contents. A source update does not publish a release or deploy its backend.
 1. POST /api/v1/link/register with the existing key and {"provider":"kodi"}
    must return {"ok":true,"account_id":"<stable authenticated identity>"}.
    The account identifier is server-selected. The server must support Kodi
-   registration with the existing key; no new credential is requested.
+   registration with an already Kodi-scoped key; it must not adopt generic or
+   unscoped keys. Fresh pairing starts with POST /api/v1/link/new and
+   {"provider":"kodi","device_name":"Kodi"}. The maintained client already
+   sends that purpose. Registering a key does not mint or migrate a credential.
 2. POST /api/v1/scrobble/events must accept immutable provider ("kodi"), event_id, session_id,
    sequence and watched_at (integer UTC seconds). Start/pause/resume/stop events
    share one session; a new sitting gets a new UUID. Completion creates history;

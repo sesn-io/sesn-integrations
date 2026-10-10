@@ -38,9 +38,11 @@ Live/PVR TV and music are never logged.
    [sesn.io/link](https://sesn.io/link) while signed in to the intended Sesn account.
 4. Play a known film or episode and check the watch in Sesn after finishing it.
 
-Manual key entry is an advanced fallback: create a key at
-[sesn.io/api-keys](https://sesn.io/api-keys), then enter it under the add-on's
-**Advanced → API key** setting. Pair separately in each Kodi profile on a shared box.
+Pairing explicitly requests a Kodi-scoped key. Use a fresh code pairing instead
+of entering a generic or older unscoped API key; those keys are not automatically
+adopted or migrated. The Advanced API key field does not grant a key Kodi access.
+Manage or revoke old keys at [sesn.io/api-keys](https://sesn.io/api-keys).
+Pair separately in each Kodi profile on a shared box.
 
 ## Behavior and settings
 

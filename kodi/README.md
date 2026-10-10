@@ -54,8 +54,11 @@ and use *Install from zip file*.
 
 ## Connect
 Open the add-on and choose **Pair with a code** — you'll get a short code to confirm at
-[sesn.io/link](https://sesn.io/link). Nothing to type on the remote. (Advanced: paste a key from
-[sesn.io/api-keys](https://sesn.io/api-keys) instead.)
+[sesn.io/link](https://sesn.io/link). Nothing to type on the remote. The maintained
+client explicitly requests a Kodi-scoped pairing. Use fresh pairing if an older
+unscoped key is rejected; generic API keys are not a substitute and are not
+automatically migrated to Kodi credentials. Manage or revoke old keys at
+[sesn.io/api-keys](https://sesn.io/api-keys).
 
 On a shared box, select the intended **Kodi profile** before pairing. Pair each profile with
 that person's own Sesn account; playback is attributed to the account paired in the active profile.

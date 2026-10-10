@@ -1,14 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const source = await readFile(new URL('../sesn-tautulli.mjs', import.meta.url), 'utf8');
-const initial = () => ({tautulliUrl:'http://localhost:8181',tautulliApiKey:'fixture-tautulli',notifierId:77,sesnKey:'fixture-sesn',serverId:'fixture-server'});
+const initial = () => ({tautulliUrl:'http://localhost:8181',tautulliKeyUrl:'http://localhost:8181',tautulliApiKey:'fixture-tautulli',notifierId:77,sesnKey:'fixture-sesn',sesnOrigin:'http://localhost',serverId:'fixture-server',notifierProof:{notifierId:'77',tautulliUrl:'http://localhost:8181',serverId:'fixture-server',hook:'http://localhost/api/v1/webhooks/tautulli',credentialHash:createHash('sha256').update('fixture-sesn').digest('hex')}});
 async function run(config, reply, command = 'remove') {
-  let saved=structuredClone(config), code=0; const calls=[], messages=[];
-  const names=['readFileSync','writeFileSync','existsSync','chmodSync','dirname','join','fileURLToPath','createInterface','process','console','fetch'];
-  const args=[()=>JSON.stringify(saved),(_path,value)=>{saved=JSON.parse(value);},()=>true,()=>{},dirname,join,fileURLToPath,()=>{throw Error('unexpected prompt');},{argv:['node','script',command],env:{SESN_URL:'http://localhost',TAUTULLI_URL:'http://localhost:8181',TAUTULLI_API_KEY:'fixture-tautulli'},exit(n){const error=Error('exit');error.exitCode=n;throw error;}},{log:(...x)=>messages.push(x.join(' ')),error:(...x)=>messages.push(x.join(' ')),warn:(...x)=>messages.push(x.join(' '))},async(url,options)=>{const u=new URL(url);const call={path:u.pathname,cmd:u.searchParams.get('cmd'),url:String(url),options};calls.push(call);return reply(call,options);}];
+  let saved=structuredClone(config), code=0; const calls=[], messages=[]; let newlyCreated=false;
+  const names=['readFileSync','writeFileSync','existsSync','chmodSync','dirname','join','fileURLToPath','createInterface','process','console','fetch','createHash'];
+  const args=[()=>JSON.stringify(saved),(_path,value)=>{saved=JSON.parse(value);},()=>true,()=>{},dirname,join,fileURLToPath,()=>{throw Error('unexpected prompt');},{argv:['node','script',command],env:{SESN_URL:'http://localhost',TAUTULLI_URL:'http://localhost:8181',TAUTULLI_API_KEY:'fixture-tautulli'},exit(n){const error=Error('exit');error.exitCode=n;throw error;}},{log:(...x)=>messages.push(x.join(' ')),error:(...x)=>messages.push(x.join(' ')),warn:(...x)=>messages.push(x.join(' '))},async(url,options)=>{const u=new URL(url);const call={path:u.pathname,cmd:u.searchParams.get('cmd'),url:String(url),options};calls.push(call);if(call.cmd==='get_server_identity')return ok({machine_identifier:'fixture-server'});if(call.cmd==='add_notifier_config')newlyCreated=true;if(call.cmd==='get_notifier_config')return ok(newlyCreated?{id:77,agent_id:25,config:{hook:'',method:'POST'},actions:{on_watched:0},notify_text:{on_watched:{subject:'',body:''}}}:{id:77,agent_id:25,config:{hook:'http://localhost/api/v1/webhooks/tautulli',method:'POST'},actions:{on_watched:1},notify_text:{on_watched:{subject:JSON.stringify({'X-Api-Key':'fixture-sesn'})}}});return reply(call,options);},createHash];
   const body=source.replace(/^#!.*\n/, '').replace(/^import .*;\n/gm,'').replaceAll('import.meta.url',JSON.stringify('file:///fixture/sesn-tautulli.mjs'));
   try { await new (Object.getPrototypeOf(async()=>{}).constructor)(...names,body)(...args); } catch(error){if(error.exitCode!==undefined)code=error.exitCode;else throw error;}
   assert.doesNotMatch(messages.join('\n'),/fixture-tautulli|fixture-sesn/);
