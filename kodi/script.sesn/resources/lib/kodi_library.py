@@ -16,14 +16,29 @@ import json
 import xbmc
 
 
-def rpc(method, params=None):
-    """One JSON-RPC call to the local Kodi. Returns the `result` dict, or {}."""
+class RpcError(RuntimeError):
+    """A local operation was not acknowledged; callers must not checkpoint it."""
+
+
+def rpc_checked(method, params=None):
+    """Return a confirmed JSON-RPC result or raise, including protocol errors."""
     req = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}}
     try:
         raw = xbmc.executeJSONRPC(json.dumps(req))
-        return (json.loads(raw) or {}).get('result', {}) or {}
+        response = json.loads(raw)
+        if not isinstance(response, dict) or 'error' in response or 'result' not in response:
+            raise RpcError('missing result or JSON-RPC error')
+        return response['result']
     except Exception as err:
-        xbmc.log('[script.sesn] jsonrpc %s failed: %s' % (method, err), xbmc.LOGWARNING)
+        raise RpcError('jsonrpc %s was not acknowledged' % method) from err
+
+
+def rpc(method, params=None):
+    """Best-effort read for the browse UI; sync uses rpc_checked instead."""
+    try:
+        return rpc_checked(method, params) or {}
+    except RpcError as err:
+        xbmc.log('[script.sesn] %s' % err, xbmc.LOGWARNING)
         return {}
 
 
@@ -47,14 +62,34 @@ def _index(rows, id_field):
     return index
 
 
-def movie_index():
-    res = rpc('VideoLibrary.GetMovies', {'properties': ['uniqueid']})
-    return _index(res.get('movies'), 'movieid')
+def _library_rows(method, params, key, strict, id_field):
+    res = (rpc_checked if strict else rpc)(method, params)
+    if not strict:
+        return res.get(key, []) if isinstance(res, dict) else []
+    limits = res.get('limits') if isinstance(res, dict) else None
+    if not isinstance(limits, dict) or any(type(limits.get(k)) is not int for k in ('start', 'end', 'total')):
+        raise RpcError('jsonrpc %s did not confirm complete library limits' % method)
+    start, end, total = limits['start'], limits['end'], limits['total']
+    # We requested the entire collection, not a page. Never mistake a truncated
+    # or malformed index for evidence that a watched title is absent locally.
+    if start != 0 or end != total or total < 0:
+        raise RpcError('jsonrpc %s returned a truncated library' % method)
+    rows = res.get(key, [])
+    if not isinstance(rows, list) or len(rows) != total:
+        raise RpcError('jsonrpc %s returned incomplete library data' % method)
+    if any(not isinstance(row, dict) or type(row.get(id_field)) is not int or row[id_field] <= 0 for row in rows):
+        raise RpcError('jsonrpc %s returned an invalid library ID' % method)
+    return rows
 
 
-def show_index():
-    res = rpc('VideoLibrary.GetTVShows', {'properties': ['uniqueid']})
-    return _index(res.get('tvshows'), 'tvshowid')
+def movie_index(strict=False):
+    rows = _library_rows('VideoLibrary.GetMovies', {'properties': ['uniqueid']}, 'movies', strict, 'movieid')
+    return _index(rows, 'movieid')
+
+
+def show_index(strict=False):
+    rows = _library_rows('VideoLibrary.GetTVShows', {'properties': ['uniqueid']}, 'tvshows', strict, 'tvshowid')
+    return _index(rows, 'tvshowid')
 
 
 def _match(index, ids):
@@ -79,21 +114,21 @@ def find_show(ids, index=None):
     return _match(show_index() if index is None else index, ids)
 
 
-def find_episode(show_ids, season, episode, index=None):
+def find_episode(show_ids, season, episode, index=None, strict=False):
     """Resolve an episode by its SHOW's ids + season/episode → episodeid (trap #2)."""
-    tvshowid = _match(show_index() if index is None else index, show_ids)
+    tvshowid = _match(show_index(strict=strict) if index is None else index, show_ids)
     if tvshowid is None:
         return None
     try:
         season_i, episode_i = int(season), int(episode)
     except (TypeError, ValueError):
         return None
-    res = rpc('VideoLibrary.GetEpisodes', {
+    rows = _library_rows('VideoLibrary.GetEpisodes', {
         'tvshowid': tvshowid,
         'season': season_i,
         'properties': ['episode'],
-    })
-    for ep in res.get('episodes', []) or []:
+    }, 'episodes', strict, 'episodeid')
+    for ep in rows:
         if ep.get('episode') == episode_i:
             return ep.get('episodeid')
     return None

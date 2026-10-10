@@ -131,87 +131,15 @@ class ApiTests(unittest.TestCase):
         self.assertIsNone(self.api.retry_after_seconds(Response(429, headers={'Retry-After': 'soon'})))
         self.assertEqual(self.api.retry_after_seconds(Response(429, headers={'Retry-After': 'Wed, 21 Oct 2015 07:28:00 GMT'})), 0)
 
+    def test_http_200_rate_limit_is_retryable_not_an_acceptance(self):
+        self.response = Response(200, {'ok': True, 'logged': False, 'ignored': 'rate_limited'})
+        self.assertEqual(self.api.send_result({'action': 'stop'}), (self.api.RETRY, 3600))
+        self.response.headers['Retry-After'] = '120'
+        self.assertEqual(self.api.send_result({'action': 'stop'}), (self.api.RETRY, 120))
 
-class QueueTests(unittest.TestCase):
-    def setUp(self):
-        self.kodi = Kodi()
-        self.outcomes = []
-        self.sent = []
-        api = types.SimpleNamespace(OK='ok', RETRY='retry', DROP='drop', UNAUTHORIZED='unauthorized', NO_KEY='no_key',
-                                    BLOCKED='blocked', invalid=False, key='k1')
-        def send_result(payload):
-            self.sent.append(payload)
-            return self.outcomes.pop(0) if self.outcomes else ('ok', None)
-        api.send_result = send_result
-        api.is_configured = lambda: bool(api.key)
-        api.key_invalid = lambda: api.invalid
-        api.key_fingerprint = lambda: api.key
-        self.api = api
-        self.queue = load('scrobble_queue', self.kodi, {'sesn_api': api})
-        self.queue.random = types.SimpleNamespace(random=lambda: 1.0)
-
-    def stored(self):
-        return json.loads(self.kodi.files.get('/profile/queue.json') or '[]')
-
-    def test_success_sends_without_queueing(self):
-        self.assertTrue(self.queue.enqueue({'action': 'start'}, now=1000))
-        self.assertEqual(self.stored(), [])
-
-    def test_4xx_drops_event(self):
-        self.outcomes = [('drop', None)]
-        self.assertFalse(self.queue.enqueue({'action': 'stop'}, now=1000))
-        self.assertEqual(self.stored(), [])
-
-    def test_retry_queues_backs_off_and_honours_retry_after(self):
-        self.outcomes = [('retry', 300)]
-        self.assertFalse(self.queue.enqueue({'action': 'stop'}, now=1000))
-        self.assertEqual(len(self.stored()), 1)
-        self.assertEqual(self.queue._next_attempt, 1300)
-        self.queue.flush(now=1200)  # still backing off: nothing sent
-        self.assertEqual(len(self.sent), 1)
-        self.assertFalse(self.queue.enqueue({'action': 'start'}, now=1200))  # queued behind, unsent
-        self.assertEqual(len(self.sent), 1)
-        self.queue.flush(now=1301)
-        self.assertEqual(len(self.sent), 3)
-        self.assertEqual(self.stored(), [])
-        self.assertEqual(self.queue._failures, 0)
-
-    def test_backoff_grows_with_cap(self):
-        delays = [self.queue.backoff_delay(n, rand=lambda: 1.0) for n in range(1, 12)]
-        self.assertEqual(delays[:4], [10, 20, 40, 80])
-        self.assertEqual(delays[-1], 30 * 60)
-        self.assertEqual(self.queue.backoff_delay(1, rand=lambda: 0.0), 5)
-        self.assertEqual(self.queue.backoff_delay(1, retry_after=600, rand=lambda: 1.0), 600)
-
-    def test_unauthorized_stops_until_new_key(self):
-        self.outcomes = [('unauthorized', None)]
-        self.queue.enqueue({'action': 'start'}, now=1000)
-        self.api.invalid = True
-        self.queue.flush(now=5000)
-        self.assertEqual(len(self.sent), 1)
-        self.api.invalid, self.api.key = False, 'k2'  # paired again
-        self.queue.flush(now=1001)  # new key: old backoff no longer applies
-        self.assertEqual(len(self.sent), 2)
-        self.assertEqual(self.stored(), [])
-
-    def test_flush_drops_4xx_and_stops_at_retry(self):
-        self.kodi.files['/profile/queue.json'] = json.dumps([
-            {'payload': {'n': 1}, 'queued_at': 1000}, {'payload': {'n': 2}, 'queued_at': 1000},
-            {'payload': {'n': 3}, 'queued_at': 1000}])
-        self.outcomes = [('drop', None), ('retry', None)]
-        self.queue.flush(now=2000)
-        self.assertEqual([p['n'] for p in self.sent], [1, 2])
-        self.assertEqual([i['payload']['n'] for i in self.stored()], [2, 3])
-
-    def test_old_events_expire_and_legacy_format_is_read(self):
-        week = 7 * 24 * 3600
-        self.kodi.files['/profile/queue.json'] = json.dumps([
-            {'payload': {'n': 'old'}, 'queued_at': 1000}, {'payload': {'n': 'new'}, 'queued_at': 1000 + week}])
-        self.queue.flush(now=1001 + week)
-        self.assertEqual([p['n'] for p in self.sent], ['new'])
-        self.kodi.files['/profile/queue.json'] = json.dumps([{'action': 'stop', 'title': 'legacy'}])
-        self.queue.flush(now=5000)
-        self.assertEqual(self.sent[-1], {'action': 'stop', 'title': 'legacy'})
+    def test_ordinary_ignored_stop_remains_acknowledged(self):
+        self.response = Response(200, {'ok': True, 'logged': False, 'skipped': 'below_completion_threshold'})
+        self.assertEqual(self.api.send_result({'action': 'stop'})[0], self.api.OK)
 
 
 class PairIntervalTests(unittest.TestCase):
@@ -230,30 +158,6 @@ class PairIntervalTests(unittest.TestCase):
         self.assertEqual(self.pair.next_interval(5, 200, {'status': 'slow_down'}), 10)
         self.assertEqual(self.pair.next_interval(5, 429, None, retry_after=30), 30)
         self.assertEqual(self.pair.next_interval(60, 429, None), 60)
-
-
-class SyncLoopTests(unittest.TestCase):
-    def setUp(self):
-        self.kodi = Kodi()
-        self.kodi.settings['sync_down'] = True
-        self.pages = []
-        self.requests = []
-        def get_json(path):
-            self.requests.append(path)
-            return self.pages.pop(0) if self.pages else None
-        library = types.SimpleNamespace(movie_index=lambda: {}, show_index=lambda: {}, find_movie=lambda *a, **k: None,
-                                        find_episode=lambda *a, **k: None, rpc=lambda *a: {})
-        self.sync = load('sync', self.kodi, {'sesn_api': types.SimpleNamespace(get_json=get_json), 'kodi_library': library})
-
-    def test_pauses_between_pages_and_stops_on_stuck_cursor(self):
-        self.pages = [{'ok': True, 'items': [], 'cursor': 10, 'has_more': True},
-                      {'ok': True, 'items': [], 'cursor': 10, 'has_more': True},
-                      {'ok': True, 'items': [], 'cursor': 20, 'has_more': False}]
-        with patch.dict(sys.modules, self.kodi.modules):
-            self.sync.run(full=True)
-        self.assertEqual(len(self.requests), 2)
-        self.assertEqual(self.kodi.waits, [1])
-        self.assertIn('since=10', self.requests[1])
 
 
 class PluginListIdTests(unittest.TestCase):

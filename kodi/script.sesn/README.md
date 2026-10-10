@@ -1,5 +1,12 @@
 # Sesn for Kodi (`script.sesn`)
 
+## Unreleased source
+
+This checkout has account-bound durable delivery and sync fixes. It still
+declares 0.2.11 because publishing a new addon is a separate release step.
+The existing 0.2.11 downloadable ZIP does not include these changes.
+See [the integration checklist](../INTEGRITY.md) before packaging this source.
+
 ## Version 0.2.11 — 4 October 2026
 
 If Sesn rejects this device's key (it was revoked on sesn.io), the add-on stops
@@ -42,9 +49,18 @@ Manual key entry is an advanced fallback: create a key at
 - Movie IDs come from the playing movie. Episode references use the parent show's
   library IDs and season/episode numbers. Streams without a known library parent
   fall back to the show title and episode numbers, never the episode's own IDs.
-- Sends that fail because Sesn is unreachable or busy are queued on the device
-  and retried with increasing gaps (up to 30 minutes); queued plays older than
-  7 days are discarded. Events Sesn refuses outright are not retried.
+- Events are committed to the profile's SQLite outbox before delivery, with
+  original UTC timestamps and stable event/session IDs. Retries retain those
+  fields. Server throttling (including older HTTP-200 responses) keeps the event.
+- Pairing must be verified against the server before capture starts. Disconnect
+  stops new capture. Another account or server cannot receive a previous owner's
+  events; a verified new key for the same account can resume its own backlog.
+- Older unbound queue.json is preserved and never uploaded automatically. Old
+  account queues and rejected events are also preserved. The 500-event total cap
+  visibly refuses new capture when full; it never evicts an existing event.
+- The strict event endpoint must explicitly acknowledge durable acceptance.
+  Unsupported servers and ambiguous replies retain the queue without falling
+  back to the old endpoint. This source therefore requires the matching backend.
 - If Sesn rejects the key (for example it was revoked on sesn.io), nothing more
   is sent until you pair again; the add-on shows a notice and keeps queued plays.
 - The key is only sent to an `https://` Sesn address (the Advanced server
@@ -52,7 +68,9 @@ Manual key entry is an advanced fallback: create a key at
 - **Scrobbling** controls movie/episode logging and confirmation notifications.
 - **Two-way sync** is the setting label for optional sync from Sesn, off by default.
   It marks matching local items watched and copies the associated ratings from new
-  watched records. Later edits to existing ratings are not continuously reconciled.
+  watched records. Failed local reads/writes leave the page pending. A persistent
+  weekly full pass and finished-library-scan trigger revisit older state, including
+  ratings; this is not a continuous rating-edit feed or unwatch/resume sync.
 - **Account → Disconnect** revokes this profile's key on sesn.io and forgets it
   here. If Sesn can't be reached, the key is still forgotten and the add-on asks
   you to remove the device on sesn.io.

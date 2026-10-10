@@ -41,19 +41,35 @@ def _fmt_date(ts, short=False):
 
 
 def _enrich_ids(items):
-    """Up Next / list items carry tmdb_id + type; pull imdb/tvdb from /metadata
-    in ONE call so the library match can key on whatever id Kodi scraped."""
-    refs = ["%s:%s" % (i.get("type"), i.get("tmdb_id")) for i in items if i.get("tmdb_id")]
+    """Enrich every item, using the metadata endpoint's 50-reference limit."""
+    refs = list(dict.fromkeys("%s:%s" % (i.get("type"), i.get("tmdb_id"))
+                            for i in items if i.get("tmdb_id")))
     if not refs:
         return items
-    data = sesn_api.get_json("/api/v1/metadata?ids=" + ",".join(refs[:50])) or {}
-    by_id = {"%s:%s" % (m.get("type"), m.get("tmdb_id")): m for m in (data.get("items") or [])}
+    by_id = {}
+    monitor = xbmc.Monitor()
+    incomplete = False
+    for start in range(0, len(refs), 50):
+        if start and monitor.waitForAbort(0.25):
+            incomplete = True
+            break
+        data = sesn_api.get_json("/api/v1/metadata?ids=" + ",".join(refs[start:start + 50]))
+        if not isinstance(data, dict) or data.get("ok") is not True or not isinstance(data.get("items"), list):
+            incomplete = True
+            break  # avoid repeatedly hitting an unavailable/throttled service
+        for m in data["items"]:
+            if isinstance(m, dict):
+                by_id["%s:%s" % (m.get("type"), m.get("tmdb_id"))] = m
     for it in items:
         m = by_id.get("%s:%s" % (it.get("type"), it.get("tmdb_id")))
         if m:
-            it["imdb_id"] = m.get("imdb_id")
-            it["tvdb_id"] = m.get("tvdb_id")
+            for key in ("imdb_id", "tvdb_id"):
+                if m.get(key) is not None:
+                    it[key] = m[key]
             it["next_air_date"] = m.get("next_air_date")
+    if incomplete:
+        xbmc.log("[script.sesn] metadata lookup incomplete; some library matches could not be checked", xbmc.LOGWARNING)
+        xbmcgui.Dialog().notification("Sesn", "Some library matches could not be checked. Try refreshing.", xbmcgui.NOTIFICATION_WARNING)
     return items
 
 

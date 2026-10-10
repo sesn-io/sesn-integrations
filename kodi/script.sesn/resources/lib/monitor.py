@@ -5,12 +5,14 @@ Subclass xbmc.Player for the playback callbacks. Fire the start on onAVStarted
 onPlayBackEnded and onPlayBackStopped because either can silently fail to fire.
 Live/PVR and non-video are excluded.
 
-⚠ Callbacks run on Kodi's thread, so they do NO network I/O — they only read the
-infotag (fast, local) and push an event onto an in-memory deque. The service loop
-(a separate context) drains the deque and does the actual sending, so a slow POST
-can never stall the UI.
+Callbacks read local metadata and commit a small SQLite outbox record. They do
+no network I/O. A separate network worker delivers records, while the service
+samples playback independently of slow requests or down-sync.
 """
-import collections
+import threading
+import math
+import time
+import uuid
 
 import xbmc
 import xbmcaddon
@@ -18,6 +20,7 @@ import xbmcgui
 
 import scrobble_queue
 import kodi_library
+import account
 
 ADDON = xbmcaddon.Addon()
 
@@ -39,7 +42,18 @@ def _uid(tag, kind):
 
 
 def _as_id(v):
-    return int(v) if v.isdigit() else v
+    """Optional numeric provider IDs must fit the strict JSON integer contract."""
+    if not isinstance(v, str) or not v.isascii() or not v.isdigit():
+        return None
+    digits = v.lstrip("0") or "0"
+    if len(digits) > 16:
+        return None
+    value = int(digits)
+    return value if 0 < value <= 9007199254740991 else None
+
+
+def _imdb_id(v):
+    return v if v.isascii() and v.startswith("tt") and v[2:].isdigit() else None
 
 
 def _parent_show(tag):
@@ -64,22 +78,35 @@ def _parent_show(tag):
         return {}
 
 
-def _percent(player):
+def _position(player):
     try:
-        total = player.getTotalTime()
-        if total and total > 0:
-            return round((player.getTime() / total) * 100)
+        total, position = float(player.getTotalTime()), float(player.getTime())
+        if math.isfinite(total) and total > 0 and math.isfinite(position) and position >= 0:
+            return position, total
     except Exception:
         pass
     return None
 
 
+def _monotonic():
+    return time.monotonic()
+
+
 class SesnPlayer(xbmc.Player):
     def __init__(self):
         super().__init__()
-        self.events = collections.deque()  # (payload dicts) pending send
+        self._lock = threading.RLock()
         self._current = None  # identity of what's playing, or None
         self._last_percent = 0
+        self._owner = None
+        self._session = None
+        self._sequence = 0
+        self._start_pending = False
+        self._seek_pending = False
+        self._seek_target_seconds = None
+        self._seek_updated = None
+        self._seek_distance = 0.0
+        self._playback_speed = 1.0
 
     # ---- identity ----------------------------------------------------------
     def _build_ref(self):
@@ -130,73 +157,163 @@ class SesnPlayer(xbmc.Player):
         if not ADDON.getSettingBool("scrobble_movies"):
             return None
         title = tag.getTitle()
-        if not (title or imdb or tmdb):
+        tmdb, tvdb, imdb = _as_id(tmdb), _as_id(tvdb), _imdb_id(imdb)
+        # Omit malformed optional IDs; use only the title actually supplied by
+        # Kodi, never a fabricated replacement. No valid identity means no event.
+        if not ((isinstance(title, str) and title.strip()) or imdb or tmdb or tvdb):
             return None
         ref = {"type": "movie", "title": title}
         year = tag.getYear()
         if year:
             ref["year"] = year
         if tmdb:
-            ref["tmdb_id"] = _as_id(tmdb)
+            ref["tmdb_id"] = tmdb
         if imdb:
             ref["imdb_id"] = imdb
         if tvdb:
-            ref["tvdb_id"] = _as_id(tvdb)
+            ref["tvdb_id"] = tvdb
         return ref
 
     def _queue(self, action, progress=None):
-        if not self._current:
+        if not self._current or not self._owner or account.current() != self._owner:
             return
+        if self._start_pending and action != "stop":
+            return  # new-item transitions cannot be attributed to the old sitting
         payload = dict(self._current)
         payload["action"] = action
+        payload["event_id"] = str(uuid.uuid4())
+        payload["session_id"] = self._session
+        payload["sequence"] = self._sequence
+        payload["watched_at"] = int(time.time())
+        self._sequence += 1
         if progress is not None:
             payload["progress"] = progress
-        self.events.append(payload)
+        # Commit at capture time, never after the first network attempt. The
+        # callback performs bounded local storage only, no HTTP.
+        scrobble_queue.capture(payload, owner=self._owner)
 
     # ---- callbacks (Kodi thread — keep light) ------------------------------
+    def onPlayBackStarted(self):
+        with self._lock:
+            self._start_pending = True
+
     def onAVStarted(self):
-        ref = self._build_ref()
-        # If something was playing and we never saw its stop, flush it now.
-        if self._current and ref != self._current:
-            self._queue("stop", self._last_percent)
-        self._current = ref
-        self._last_percent = 0
-        if ref:
-            self._queue("start")
+        with self._lock:
+            owner = account.current()
+            ref = self._build_ref() if owner else None
+            if self._current and ref == self._current and owner == self._owner and not self._start_pending:
+                return  # duplicate metadata-ready callback, same sitting
+            if self._current:
+                self._queue("stop", self._last_percent)
+            self._current, self._owner = ref, owner
+            self._last_percent = 0
+            self._seek_pending = self._start_pending = False
+            self._seek_target_seconds = None
+            self._seek_updated = None
+            self._seek_distance = 0.0
+            self._playback_speed = 1.0
+            self._session, self._sequence = str(uuid.uuid4()), 0
+            if ref:
+                self._queue("start")
 
     def onPlayBackPaused(self):
-        self._queue("pause")
+        with self._lock:
+            self.sample_progress()
+            self._advance_seek_clock()
+            self._playback_speed = 0.0
+            self._queue("pause", self._last_percent)
 
     def onPlayBackResumed(self):
-        self._queue("start")
+        with self._lock:
+            self._advance_seek_clock()
+            self._playback_speed = 1.0
+            self.sample_progress()
+            self._queue("resume", self._last_percent)
 
     def onPlayBackEnded(self):
-        self._queue("stop", 100)  # played to the natural end
-        self._current = None
-        self._last_percent = 0
+        with self._lock:
+            self._queue("stop", 100)  # position-completion policy, not watch duration
+            self._current = None
+            self._last_percent = 0
 
     def onPlayBackStopped(self):
         # The player may already be torn down here, so trust the % sampled during
         # playback rather than reading getTime() now.
-        self._queue("stop", self._last_percent)
-        self._current = None
-        self._last_percent = 0
+        with self._lock:
+            self.sample_progress()  # use a final valid sample if the player is still alive
+            self._queue("stop", self._last_percent)
+            self._current = None
+            self._last_percent = 0
+
+    def onPlayBackSeek(self, time, seekOffset):
+        """Kodi callback arguments are milliseconds; getTotalTime is seconds."""
+        with self._lock:
+            if self._start_pending:
+                return  # the seek belongs to the next item, whose identity is pending
+            # Clear the pre-seek sample first. A nonpositive/unknown duration
+            # is just as unusable as an exception from the player.
+            self._last_percent = 0
+            self._seek_pending = True
+            self._seek_target_seconds = None
+            self._seek_updated = _monotonic()
+            self._seek_distance = 0.0
+            try:
+                target = float(time) / 1000.0
+                if math.isfinite(target) and target >= 0:
+                    self._seek_target_seconds = target
+                total = float(self.getTotalTime())
+                if self._current and self._seek_target_seconds is not None and math.isfinite(total) and total > 0:
+                    self._last_percent = max(0, min(100, target / total * 100))
+            except Exception:
+                # A stale pre-seek percentage must never turn a backward seek
+                # into a completed watch when playback tears down immediately.
+                pass
+
+    def onPlayBackSpeedChanged(self, speed):
+        with self._lock:
+            try:
+                value = float(speed)
+                if math.isfinite(value):
+                    self._advance_seek_clock()
+                    self._playback_speed = max(-32, min(32, value))
+            except (TypeError, ValueError):
+                pass
+
+    def _advance_seek_clock(self):
+        if self._seek_pending and self._seek_updated is not None:
+            now = _monotonic()
+            self._seek_distance += max(0, now - self._seek_updated) * abs(self._playback_speed)
+            self._seek_updated = now
 
     # ---- driven by the service loop (off the callback thread) --------------
     def sample_progress(self):
-        if self._current and self.isPlaying():
-            p = _percent(self)
-            if p is not None:
-                self._last_percent = p
+        with self._lock:
+            if self._start_pending:
+                # Kodi may expose the next item's position before its metadata
+                # is ready. Keep the previous sitting's final valid sample.
+                return
+            try:
+                playing = self.isPlaying()
+            except Exception:
+                playing = False
+            if self._current and playing:
+                sample = _position(self)
+                if sample is not None:
+                    position, total = sample
+                    if self._seek_pending:
+                        if self._seek_target_seconds is None or self._seek_updated is None:
+                            return
+                        self._advance_seek_clock()
+                        tolerance = min(0.25, total * 0.01)
+                        # The first fresh sample can already be well beyond the
+                        # target on a short video or after delayed metadata. Its
+                        # distance must be plausible for elapsed playback time;
+                        # an immediate stale pre-seek position is not plausible.
+                        if abs(position - self._seek_target_seconds) > self._seek_distance + tolerance:
+                            return
+                    self._seek_pending = False
+                    self._last_percent = max(0, min(100, position / total * 100))
 
     def drain(self):
-        while self.events:
-            payload = self.events.popleft()
-            ok = scrobble_queue.enqueue(payload)  # sends now; persists on failure
-            if (
-                ok
-                and payload.get("action") == "stop"
-                and (payload.get("progress") or 0) >= NOTIFY_AT
-            ):
-                # A queue acknowledgement is not a saved-watch receipt.
-                _notify("Sent %s to Sesn" % payload.get("title", "this title"))
+        """Compatibility no-op: events are already persisted in each callback."""
+        return None

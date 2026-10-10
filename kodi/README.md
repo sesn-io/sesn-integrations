@@ -1,5 +1,14 @@
 # Sesn add-on for Kodi (`script.sesn`)
 
+## Unreleased integrity changes
+
+The source now uses a server/account/profile-bound SQLite outbox, immutable
+playback event IDs and original timestamps, checked local writes, and persistent
+weekly reconciliation. Network delivery no longer blocks playback sampling.
+These changes are **not in the 0.2.11 ZIP**. See [INTEGRITY.md](INTEGRITY.md) for
+required backend contracts, offline tests and installed-device release gates.
+No addon version, release artifact or repository index was changed for this work.
+
 ## Version 0.2.11 and repository 1.0.1 — 4 October 2026
 
 The add-on stops sending after Sesn rejects its key and asks you to pair again,
@@ -52,7 +61,10 @@ On a shared box, select the intended **Kodi profile** before pairing. Pair each 
 that person's own Sesn account; playback is attributed to the account paired in the active profile.
 
 ## What it does
-- **Scrobble** — logs a film or episode when you finish it (past ~80%), with rewatch support.
+- **Scrobble** — records position-complete playback (at least 80%, or natural end).
+  Seeking to the end can qualify; this does not measure time actually watched.
+  Released 0.2.11 has heuristic movie rewatch support; strict event-based movie
+  and episode rewatches require the unreleased client and matching backend.
 - **Sync from Sesn** *(off by default)* — bring new watched records and their associated ratings
   into matching items in the local Kodi library. Later rating edits are not continuously reconciled.
 - **Browse** — your Watchlist / Up Next / lists inside Kodi; items already on the box are playable.

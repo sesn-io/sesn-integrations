@@ -35,7 +35,7 @@ OK = "ok"  # Sesn acknowledged the event
 RETRY = "retry"  # network/server trouble, 408 or 429: keep and back off
 DROP = "drop"  # any other 4xx: the event itself is unacceptable, discard it
 UNAUTHORIZED = "unauthorized"  # 401 (or a key already known to be invalid)
-NO_KEY = "no_key"  # not paired; keep the event until a key is set
+NO_KEY = "no_key"  # not paired; no new capture or unverified replay
 BLOCKED = "blocked"  # the configured server address is not allowed
 
 _warned_host = None
@@ -100,6 +100,12 @@ def key_fingerprint():
     return _fingerprint(key) if key else ""
 
 
+def transport_fingerprint():
+    """Opaque binding to this exact credential AND destination; never the key."""
+    key, base = _key(), server_base()
+    return hashlib.sha256(json.dumps([base, key]).encode("utf-8")).hexdigest() if key and base else ""
+
+
 def is_configured():
     return bool(_key())
 
@@ -110,11 +116,11 @@ def key_invalid():
     return bool(key) and _setting("invalid_key") == _fingerprint(key)
 
 
-def mark_key_invalid():
+def mark_key_invalid(expected_key=None):
     """Remember (by fingerprint) that Sesn rejected this key and ask to pair again.
     A newly paired or pasted key has a different fingerprint, which clears it."""
     key = _key()
-    if not key or key_invalid():
+    if not key or key_invalid() or (expected_key is not None and expected_key != key):
         return
     try:
         ADDON.setSettingString("invalid_key", _fingerprint(key))
@@ -163,7 +169,7 @@ def classify_status(status):
     return RETRY
 
 
-def send_result(payload):
+def send_result(payload, expected_transport=None, durable=False):
     """POST one event and return (outcome, retry_after_seconds_or_None).
 
     Never raises. The API key rides the X-Api-Key header, never a query string or
@@ -181,9 +187,11 @@ def send_result(payload):
     base = server_base()
     if base is None:
         return BLOCKED, None
+    if expected_transport is not None and hashlib.sha256(json.dumps([base, key]).encode("utf-8")).hexdigest() != expected_transport:
+        return BLOCKED, None
     try:
         resp = requests.post(
-            base + "/api/v1/scrobble",
+            base + ("/api/v1/scrobble/events" if durable else "/api/v1/scrobble"),
             headers={"X-Api-Key": key, "Content-Type": "application/json"},
             data=json.dumps(payload),
             timeout=TIMEOUT,
@@ -193,6 +201,16 @@ def send_result(payload):
         if 200 <= status < 300:
             body = resp.json()
             outcome = OK if isinstance(body, dict) and body.get("ok") is True else RETRY
+            # Older servers acknowledge the request with HTTP 200 while refusing
+            # delivery at their hourly quota. That is not a durable acceptance.
+            if isinstance(body, dict) and body.get("ignored") == "rate_limited":
+                return RETRY, retry_after_seconds(resp) or 3600
+            if durable:
+                outcome = OK if (isinstance(body, dict) and body.get("ok") is True
+                    and body.get("protocol_version") == 1 and body.get("durable") is True
+                    and isinstance(payload.get("event_id"), str) and bool(payload.get("event_id"))
+                    and body.get("event_id") == payload.get("event_id")
+                    and body.get("state") in ("queued", "applied")) else RETRY
         else:
             outcome = classify_status(status)
         # Log bounded event metadata and acceptance, never raw response bodies.
@@ -214,7 +232,7 @@ def send_result(payload):
             )
         )
         if outcome == UNAUTHORIZED:
-            mark_key_invalid()
+            mark_key_invalid(key)
         elif outcome != OK:
             _log("scrobble failed: HTTP %s (%s)" % (status, outcome), xbmc.LOGWARNING)
         return outcome, retry_after_seconds(resp)
@@ -286,7 +304,7 @@ def revoke_key():
     return False
 
 
-def get_json(path):
+def get_json(path, expected_transport=None):
     """GET {server}{path} with the API key. Returns parsed JSON, or None on any
     failure. Used by the browse plugin to read Up Next / lists / metadata."""
     if requests is None:
@@ -297,13 +315,37 @@ def get_json(path):
     base = server_base()
     if base is None:
         return None
+    if expected_transport is not None and hashlib.sha256(json.dumps([base, key]).encode("utf-8")).hexdigest() != expected_transport:
+        return None
     try:
         resp = requests.get(base + path, headers={"X-Api-Key": key}, timeout=TIMEOUT, allow_redirects=False)
         if 200 <= resp.status_code < 300:
             return resp.json()
         if resp.status_code == 401:
-            mark_key_invalid()
+            mark_key_invalid(key)
         _log("GET %s -> %s" % (path, resp.status_code), xbmc.LOGWARNING)
     except Exception as err:
         _debug("GET %s error: %s" % (path, type(err).__name__))
     return None
+
+
+def register_account(expected_transport):
+    """Register Kodi using its existing key; return a server-verified identity.
+
+    Servers predating Kodi registration return no identity. Never guess an
+    account from a key or silently adopt an old queue in that case.
+    """
+    key, base = _key(), server_base()
+    if requests is None or not key or not base or key_invalid():
+        return None
+    if hashlib.sha256(json.dumps([base, key]).encode("utf-8")).hexdigest() != expected_transport:
+        return None
+    try:
+        resp = requests.post(base + "/api/v1/link/register",
+            headers={"X-Api-Key": key, "Content-Type": "application/json"},
+            data=json.dumps({"provider": "kodi"}), timeout=TIMEOUT, allow_redirects=False)
+        if resp.status_code == 401:
+            mark_key_invalid(key)
+        return resp.json() if 200 <= resp.status_code < 300 else None
+    except Exception:
+        return None
