@@ -9,13 +9,35 @@ Native Jellyfin server plugin by Object64 for securely sending a mapped viewer's
 playback lifecycle to Sesn. Separate packages cover Jellyfin 10.11, 12.0 and
 12.1 with their required .NET runtimes.
 
-## What it does
+## Source status and published builds
+
+**The durable-completion, connection-ownership and narrowed viewer-discovery
+changes in this checkout are unreleased.** The existing 0.4 packages do not
+contain them. The behavior below describes the current source unless explicitly
+labelled as a published feature. A GitHub source update does not replace the
+hosted ZIPs or install a new version on your server.
+
+| Jellyfin server line | Published plugin package | Target ABI | Runtime target |
+|---|---|---|---|
+| 10.11 (built against 10.11.11) | 0.4.0.0 | 10.11.0.0 | .NET 9 |
+| 12.0 (built against 12.0.0) | 0.4.1.0 | 12.0.0.0 | .NET 10 |
+| 12.1 (built against 12.1.0) | 0.4.2.0 | 12.1.0.0 | .NET 10 |
+
+These are separate ABI builds of the 0.4 release, not interchangeable packages.
+The published 0.4 release provides private credential storage, 90-second progress
+throttling and rejected-key handling. Its viewer discovery reports local user
+names/IDs; the source-only single-viewer restriction and six-minute household
+permission lease described below are not shipped in those ZIPs. Installed-server
+and upgrade acceptance is still required before publishing a new build.
+
+## What the current source does
 
 - In single-viewer mode, reports only the selected local viewer identity. Full
   local viewer discovery starts only after Sesn confirms household mode, so you
   can map the people you want to track on sesn.io.
 - In a household setup, sends events only for the people you track; everyone
-  else is filtered out on your own server. With a single viewer selected, only
+  else's playback is filtered out on your own server. Household discovery still
+  reports local viewer names/IDs for mapping. With a single viewer selected, only
   that viewer is sent. Household playback permission expires within six minutes
   without a successful refresh; discovery keeps retrying automatically. Turning
   off tracking pauses both playback and viewer reports.
@@ -52,17 +74,24 @@ anyone with access to the stored key can use those permissions.
 
 ## Install
 
-**Easiest:** open <https://sesn.io/connections/jellyfin>, enter your Jellyfin
+These steps install the published package, not the unreleased source changes.
+You need administrator access to Jellyfin and a Sesn account.
+
+**Browser-assisted:** open <https://sesn.io/connections/jellyfin>, enter your Jellyfin
 address and an API key (Dashboard → API Keys), and confirm the restart. Your
 browser adds this plugin, restarts Jellyfin once and connects it. The key is
-used in your browser and is not sent to Sesn.
+used directly with Jellyfin in your browser and is not sent to Sesn. Your browser
+must be able to reach the Jellyfin address; browser security/private-network
+restrictions can block this route. Use manual repository installation below if
+that happens instead of exposing Jellyfin publicly or weakening browser security.
 
 **By hand:**
 
 1. In Jellyfin, open Dashboard → Plugins → Repositories and add a repository
    named **Sesn** with the URL `https://sesn.io/downloads/jellyfin/manifest.json`.
 2. Open Plugins → Catalog, install **Sesn**, then restart Jellyfin. Jellyfin
-   only offers the build that matches your server version.
+   uses the manifest's target ABI to choose compatible versions. Check the matrix
+   above and do not manually install a ZIP for a different server line.
 3. Open Plugins → My Plugins → Sesn → Settings, choose the Jellyfin viewer,
    click **Connect to Sesn**, then enter the short code at `https://sesn.io/link`.
 4. Confirm the intended Sesn account. For a new single-viewer connection, complete
@@ -73,22 +102,50 @@ used in your browser and is not sent to Sesn.
 
 Setup guide: https://sesn.io/help/jellyfin
 
-## Build and package
+## Build and package (maintainers)
 
-Install the .NET 10 SDK, then run:
+For compilation and regression testing, use the [test guide](Sesn.Jellyfin.Tests/README.md).
+Its ordinary build commands do not create release ZIPs. `Directory.Build.props`
+contains a development version; `package.mjs` supplies the published per-ABI
+versions explicitly. A plain development build is not an installable release.
+
+Packaging requires the .NET 10 SDK, Node.js 22 or newer, the `zip` command on PATH,
+and access to the required NuGet packages. The command below is only for a
+separately prepared release: **first assign new package versions/changelogs and
+complete backend compatibility and installed-server acceptance.** The current
+helper still names the published 0.4 artifacts and must not be used to overwrite
+them with this unreleased source.
 
 ```sh
 DOTNET=/path/to/dotnet node jellyfin/package.mjs
 ```
 
-The three installable ZIPs and the generated repository manifest are written to
-`jellyfin/artifacts/` (not committed; releases are published to sesn.io).
+The three ZIPs and generated manifest are written to `jellyfin/artifacts/`, which
+is ignored by Git. The helper builds local files only; publication to sesn.io is
+a separate operation. Preserve already-published artifacts and checksums.
 
 ## Manual installation
 
+Download the appropriate published ZIP from the `sourceUrl` in the
+[repository manifest](https://sesn.io/downloads/jellyfin/manifest.json).
 Extract all three files from the ZIP matching your Jellyfin version (DLL,
 `meta.json` and logo) into a new directory under Jellyfin's plugin directory,
 restart Jellyfin, then pair as above.
+
+## Data and local storage
+
+Playback payloads include title/provider IDs, item/server/user identifiers and
+names, device/client identifiers, playback position, and completion state.
+Household discovery sends local user names/IDs even for untracked people; it does
+not send those people's playback. Neither path uploads the media library, local
+file paths or media files. The private credential and completion files remain
+accessible to the Jellyfin service account and server administrators. Protect the
+server data directory and backups; owner-only Unix permissions are not a Windows
+ACL guarantee.
+
+Pausing tracking stops new discovery and delivery. Disconnect/replacement does
+not transfer old queued records to a new account. Review pending/held records and
+any revocation warning before removing local data.
 
 ## Completed-watch delivery and compatibility
 

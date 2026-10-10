@@ -5,14 +5,16 @@
 // Tautulli (Plex) users so you can choose on sesn.io who is tracked, and creates
 // one Sesn webhook agent in Tautulli that only fires for those users.
 //
-// Your Tautulli API key never leaves this machine: it is used only to talk to
-// Tautulli directly and is stored in sesn-tautulli.json next to this script.
+// Your Tautulli API key is sent directly to the configured Tautulli server, not
+// to Sesn. Both it and the paired Sesn key are stored in sesn-tautulli.json next
+// to this script; the Sesn key is also stored in Tautulli's webhook settings.
 //
 //   node sesn-tautulli.mjs setup    pair, report users, create the webhook agent
 //   node sesn-tautulli.mjs sync     re-report users and update who is sent
 //   node sesn-tautulli.mjs remove   delete the webhook agent and revoke the pairing
 //
-// Unattended: set TAUTULLI_URL and TAUTULLI_API_KEY instead of answering prompts.
+// Set TAUTULLI_URL and TAUTULLI_API_KEY to skip setup's address/key prompts.
+// Initial pairing still requires browser approval. Sync/remove use saved values.
 //
 // Requires Node.js 18 or newer. No dependencies.
 import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
@@ -31,7 +33,7 @@ const BODY = JSON.stringify({
   event: '{action}', media_type: '{media_type}', title: '{title}', show_name: '{show_name}', year: '{year}',
   show_year: '{show_year}', season: '{season_num}', episode: '{episode_num}', tmdb_id: '{themoviedb_id}',
   tvdb_id: '{thetvdb_id}', imdb_id: '{imdb_id}', progress_percent: '{progress_percent}', user_id: '{user_id}',
-  username: '{username}', server_id: '{server_machine_id}', unixtime: '{unixtime}',
+  username: '{username}', server_id: '{server_machine_id}', unixtime: '{unixtime}',session_id:'{session_id}',rating_key:'{rating_key}',machine_id:'{machine_id}',started_at:'{started_unixtime}',stopped_at:'{stopped_unixtime}',
   play: {
     seconds_played: '{stream_duration_sec}', runtime_seconds: '{duration_sec}', position_seconds: '{progress_duration_sec}',
     player: '{player}', product: '{product}', platform: '{platform}', device: '{device}', library: '{library_name}',
@@ -78,10 +80,10 @@ async function tautulli(config, cmd, params = {}, method = 'GET') {
   const response = await fetch(url, {
     method, headers: { 'X-Api-Key': config.tautulliApiKey, ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) },
     body: method === 'POST' ? body : undefined, signal: AbortSignal.timeout(15000),
-  }).catch((error) => fail(`Could not reach Tautulli at ${config.tautulliUrl} (${error.message}).`));
+  }).catch((error) => { throw new Error(`Could not reach Tautulli at ${config.tautulliUrl} (${error.message}).`); });
   const json = await response.json().catch(() => null);
   const out = json?.response;
-  if (!response.ok || out?.result !== 'success') fail(`Tautulli ${cmd} failed: ${out?.message ?? response.status}`);
+  if (!response.ok || out?.result !== 'success') throw new Error(`Tautulli ${cmd} failed: ${out?.message ?? response.status}`);
   return out.data;
 }
 
@@ -90,7 +92,7 @@ async function sesn(path, body, key) {
     method: 'POST', signal: AbortSignal.timeout(15000), redirect: 'error', // never forward the key elsewhere
     headers: { 'content-type': 'application/json', 'user-agent': `Sesn-Tautulli/${VERSION}`, ...(key ? { 'x-api-key': key } : {}) },
     body: JSON.stringify(body ?? {}),
-  }).catch((error) => fail(`Could not reach Sesn (${error.message}).`));
+  }).catch((error) => { throw new Error(`Could not reach Sesn (${error.message}).`); });
   const json = await response.json().catch(() => ({}));
   return { status: response.status, json };
 }
@@ -139,7 +141,8 @@ async function report(config) {
 }
 
 async function applyNotifier(config, tracked) {
-  // Only tracked users trigger the agent; everyone else never leaves Tautulli.
+  // Only tracked playback triggers the agent. Viewer names/IDs are separately
+  // reported by report(), including identities whose playback is not tracked.
   // An empty list uses an impossible id so nothing is sent until you choose.
   const conditions = [
     { parameter: 'user_id', operator: 'is', value: tracked.length ? tracked : ['-1'], type: 'int' },
@@ -191,12 +194,46 @@ async function sync() {
 
 async function remove() {
   const config = load();
-  if (config.notifierId) await tautulli(config, 'delete_notifier', { notifier_id: config.notifierId }, 'POST');
-  if (config.sesnKey) await sesn('/api/v1/link/revoke', {}, config.sesnKey);
+  const pending = [];
+  if (config.notifierId) {
+    let removed = false;
+    try {
+      await tautulli(config, 'delete_notifier', { notifier_id: config.notifierId }, 'POST');
+      removed = true;
+    } catch {
+      // A previous attempt may have deleted it before its response was lost.
+      // Only a successful explicit listing can confirm that it is absent.
+      try {
+        const agents = await tautulli(config, 'get_notifiers');
+        removed = Array.isArray(agents) && agents.every(agent => agent && agent.notifier_id != null)
+          && !agents.some(agent => String(agent.notifier_id) === String(config.notifierId));
+      } catch { /* retain the local cleanup handle */ }
+    }
+    if (removed) {
+      delete config.notifierId;
+      delete config.tautulliApiKey;
+      save(config);
+    } else pending.push('Tautulli agent removal');
+  }
+  // Independent cleanup: a local Tautulli outage must not prevent revocation.
+  if (config.sesnKey) {
+    let revoked = false;
+    try {
+      const result = await sesn('/api/v1/link/revoke', {}, config.sesnKey);
+      revoked = result.status === 401 || (result.status === 200 && result.json.ok === true);
+    } catch { /* retain the key securely for an explicit retry */ }
+    if (revoked) { delete config.sesnKey; save(config); }
+    else pending.push('Sesn pairing revocation');
+  }
+  if (pending.length) {
+    save(config);
+    fail(`Removal is incomplete: ${pending.join(' and ')} could not be confirmed. Saved retry information is retained locally. Run remove again when the service is reachable.`);
+  }
   save({ tautulliUrl: config.tautulliUrl });
-  say('Removed the Sesn agent from Tautulli and revoked the pairing. Your Sesn history is unchanged.');
+  say('The Sesn agent is removed from Tautulli and the pairing is no longer active. Your Sesn history is unchanged.');
 }
 
 const command = process.argv[2] ?? 'setup';
 if (!['setup', 'sync', 'remove'].includes(command)) fail('Usage: node sesn-tautulli.mjs [setup|sync|remove]');
-await ({ setup, sync, remove })[command]();
+try { await ({ setup, sync, remove })[command](); }
+catch (error) { fail(error instanceof Error ? error.message : 'The command could not complete.'); }

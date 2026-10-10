@@ -24,7 +24,7 @@ import account
 
 ADDON = xbmcaddon.Addon()
 
-# Match the server's completion gate purely for the "Logged X" toast wording.
+# Match the server's position-completion gate for local status notifications.
 NOTIFY_AT = 80
 
 

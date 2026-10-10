@@ -1,46 +1,79 @@
 # Sesn integrations
 
-## Kodi 0.2.11, repository 1.0.1 and Jellyfin 0.4 — 4 October 2026
+Open-source clients that connect **[Sesn](https://sesn.io)** to the apps you watch in.
+This repository contains the **Kodi add-on, Jellyfin server plugin and optional
+Tautulli configurator**. The Sesn web app, API, browser extension and hosted
+Stremio/Nuvio service are maintained separately; their source is not included here.
 
-Kodi 0.2.11 stops sending after a rejected key and asks you to pair again, drops
-refused events, backs off when Sesn is unavailable, expires week-old queued plays
-and only sends the key over https. Repository 1.0.1 reads the protected
-`kodi-repo` branch with SHA-256 checks; `python3 kodi/tools/release.py --out <dir>`
-builds that tree. Jellyfin 0.4 keeps its Sesn key in a private file instead of
-the plugin settings, sends progress at most every 90 seconds, stops after a
-rejected key and no longer gets stuck disconnecting. Real-device acceptance remains.
+## Source and downloads
 
+**The latest source is ahead of the published clients.** Kodi's account-bound
+SQLite outbox and Jellyfin's durable completion/connection-ownership changes are
+unreleased. They require compatible backend endpoints and installed-device
+acceptance before a new release. Updating `main` does not update installed clients.
 
-Open-source clients that connect **[Sesn](https://sesn.io)** — a simple, private tracker for TV, film
-and anime — to the apps you already watch in.
-
-Everything here is client-side and open by design: you can read exactly what it does and what it
-sends. The Sesn web app and API are separate and closed; these are the pieces that run on *your*
-device.
-
-| Integration | What it does | Status |
+| Client | Published version | Source and setup |
 |---|---|---|
-| **[Kodi add-on](kodi/)** | Log playback, browse lists and Up Next, optionally import newly watched state from Sesn | ✅ available |
-| **[Jellyfin plugin](jellyfin/)** | Watching Now and completed watches for everyone you track on your Jellyfin server, each to their own Sesn account | ✅ available; sesn.io can install it for you from your Jellyfin API key |
-| **[Tautulli script](tautulli/)** | Optional, for scripters. sesn.io sets Tautulli up from your API key without it | ✅ available |
-| Browser extension | Log what you watch on streaming sites (Netflix first) | 🚧 in testing |
-| **[Stremio / Nuvio catalogue add-on](https://sesn.io/connections/stremio)** | Browse Watchlist and custom lists; metadata only, no streams or playback logging | Available as a hosted Sesn add-on; install with a personal manifest URL |
+| Kodi add-on | 0.2.11; repository 1.0.1 | [Kodi guide](kodi/README.md), [unreleased compatibility requirements](kodi/INTEGRITY.md) |
+| Jellyfin plugin | 0.4 family: 0.4.0.0 / 0.4.1.0 / 0.4.2.0 for the corresponding server ABI | [Jellyfin guide and version matrix](jellyfin/README.md) |
+| Tautulli configurator | Single-file script; the hosted copy is published separately | [Script setup, privacy and removal](tautulli/README.md) |
+
+Kodi downloads are served from the `kodi-repo` branch. Jellyfin packages and the
+hosted Tautulli script are served from sesn.io. No installable browser extension
+or Stremio/Nuvio client ZIP is provided by this repository.
 
 ## Installation
 
-- **Kodi:** download the [repository ZIP](https://github.com/sesn-io/sesn-integrations/raw/kodi-repo/repository.sesn/repository.sesn-1.0.1.zip), install it in Kodi, then install Sesn from the added repository. Follow the [Kodi guide](kodi/) and pair your account using the code shown in the add-on.
-- **Jellyfin:** easiest is [sesn.io/connections/jellyfin](https://sesn.io/connections/jellyfin): enter your Jellyfin address and API key and your browser installs and connects the plugin; the key is not sent to Sesn. By hand: in Dashboard → Plugins → Repositories add `https://sesn.io/downloads/jellyfin/manifest.json`, install Sesn from the catalogue and pair it with the code it shows. See the [Jellyfin guide](jellyfin/).
-- **Tautulli:** use [sesn.io/connections/tautulli](https://sesn.io/connections/tautulli) with your Tautulli address and API key; nothing to download. The [script](tautulli/) here is an alternative for people who prefer to automate it.
-- **Stremio / Nuvio:** open [Sesn Connections](https://sesn.io/connections/stremio), create a credential and install using its personal manifest URL. There is no ZIP or separate GitHub client to download.
+- **Kodi:** download the [repository ZIP](https://github.com/sesn-io/sesn-integrations/raw/kodi-repo/repository.sesn/repository.sesn-1.0.1.zip), install it in Kodi, then install Sesn from the added repository. Follow the [Kodi guide](kodi/README.md) and pair using the displayed code.
+- **Jellyfin:** open [Connections → Jellyfin](https://sesn.io/connections/jellyfin) for browser-assisted setup. Your browser must be able to reach your Jellyfin server. The Jellyfin API key is used directly with that server, not sent to Sesn. Manual repository installation and pairing are in the [Jellyfin guide](jellyfin/README.md).
+- **Tautulli:** open [Connections → Tautulli](https://sesn.io/connections/tautulli) for browser-assisted setup, or use the [optional script](tautulli/README.md) from a machine that can reach Tautulli. The Tautulli API key is used directly with your Tautulli server, not sent to Sesn.
 
-## Privacy
+### Other Sesn integrations
 
-These clients send **only what a watch needs** — a title's ids, how far you got, and your key —
-never your library, your files, or streaming passwords. Keys are **scoped**: a key on your device can
-log watches to your account (adding to your history and stats) and read your own data. Because a
-key can write to your account, treat it like a password: each device gets its own key, and you can
-revoke one at any time from Settings → Devices & API keys on sesn.io.
-Clients only send keys to an `https://` Sesn address.
+- **Browser extension:** maintained separately and in testing; no extension source or install package is included here.
+- **Stremio / Nuvio:** open [Connections → Stremio](https://sesn.io/connections/stremio) to create a personal manifest URL for the hosted catalogue add-on. It serves Watchlist/list metadata, not streams, and installing that catalogue alone does not log playback. Treat the personal URL as a credential and do not share it. Any separate account-sync feature is configured on sesn.io.
+
+## Privacy and credentials
+
+Playback clients send title/provider IDs, playback state, and a scoped Sesn key.
+Depending on the integration, events also include viewer and server IDs/names,
+client/device identifiers, original times and session IDs. Tautulli's webhook
+includes playback-quality, codec, language and library-name metadata. It does not
+request IP addresses or location in its notification template.
+
+Viewer discovery is separate from playback filtering: Jellyfin and Tautulli
+report local viewer names/IDs so accounts can be mapped on Sesn, including people
+whose playback is not tracked. The unreleased Jellyfin source narrows discovery
+to the selected viewer until Sesn authorizes household mode. Tautulli's script
+reports its active viewer list during setup and sync. Review the individual guides
+before connecting a shared server.
+
+These clients do not upload media files, local file paths, streaming passwords,
+or the entire media library. Kodi's optional down-sync does change matching local
+watched/rating state. Keys can affect watch history and may read account data, so
+treat them like passwords and revoke unused connections on sesn.io. Server
+administrators and anyone who can read local credential files may access them.
+
+Sesn requests require HTTPS except for explicit loopback HTTP development.
+Custom HTTPS Sesn origins receive the Sesn credential. Use only a server you trust;
+changing an address is not a way to migrate queued watches between accounts.
+
+## Development checks
+
+Run from the repository root with Python 3.9+ and Node.js 24 for these checks:
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s kodi/tests -v
+node --test jellyfin/Sesn.Jellyfin.Tests/ConfigPageTests.mjs
+node --test tautulli/tests/*.test.mjs
+```
+
+The first command checks local documentation links and stored Kodi release
+integrity without network access or packaging. See the [Jellyfin test guide](jellyfin/Sesn.Jellyfin.Tests/README.md)
+for .NET regression/build commands. Offline tests do not establish live backend
+availability or installed-client compatibility. Release/package commands are
+separate maintainer operations, not ordinary installation steps.
 
 ## Licence
 

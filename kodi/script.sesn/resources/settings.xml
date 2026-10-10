@@ -18,7 +18,8 @@
           </dependencies>
         </setting>
         <!-- Connected status + Disconnect (shown only WHEN connected). Its presence
-             is the "✓ connected" indicator; tapping it forgets the key on this box. -->
+             is the "✓ connected" indicator; tapping it attempts remote revocation and
+             forgets the key on this box. Failed revocation requires website cleanup. -->
         <setting id="disconnect" type="action" label="30013">
           <level>0</level>
           <data>RunPlugin(plugin://script.sesn/?action=disconnect)</data>

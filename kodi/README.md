@@ -46,7 +46,7 @@ CoreELEC). Setup and capabilities: **[Sesn Connections → Kodi](https://sesn.io
    [`repository.sesn-1.0.1.zip`](https://github.com/sesn-io/sesn-integrations/raw/kodi-repo/repository.sesn/repository.sesn-1.0.1.zip)
    (download it first; the same file is also in this folder).
 3. **Install from repository → Sesn Repository → Program/Video add-ons → Sesn → Install.**
-4. Future updates arrive on their own.
+4. Leave automatic updates enabled for this add-on to receive future releases.
 
 ### Direct — a single zip (no auto-update)
 Download the latest ZIP from the [`kodi-repo` branch](https://github.com/sesn-io/sesn-integrations/tree/kodi-repo/script.sesn)
@@ -71,7 +71,9 @@ that person's own Sesn account; playback is attributed to the account paired in 
 - **Per-device key** — a key on the box can log watches to your account (adding to your
   history and stats) and read your own data (Watchlist, Up Next, lists). Treat it like a
   password; revoke it at any time from Settings → Devices & API keys on sesn.io.
-- **Never** scrobbles live/PVR TV, touches your files, or fetches anything you don't have.
+- **Never** scrobbles live/PVR TV or uploads media files/local paths. Browsing fetches
+  metadata and artwork; playback opens only matching items already in your Kodi library.
+  Optional sync changes local watched/rating state, and the add-on stores its own local settings/queue.
 
 ## Layout
 ```
@@ -86,6 +88,9 @@ kodi/
 ## Releasing
 The repository is served from the protected `kodi-repo` branch; only the output of
 `kodi/tools/release.py` is committed there.
+
+Before releasing the current source, complete the backend and installed-device
+gates in [INTEGRITY.md](INTEGRITY.md). Do not package it as the existing 0.2.11.
 
 1. Bump `version` (and `<news>`) in the changed add-on's `addon.xml`. Published
    versions are immutable; the script refuses to overwrite one with different contents.

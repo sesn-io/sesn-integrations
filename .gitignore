@@ -4,3 +4,5 @@ __pycache__/
 jellyfin/**/bin/
 jellyfin/**/obj/
 jellyfin/artifacts/
+# Local Tautulli credentials (both provider and Sesn keys).
+sesn-tautulli.json

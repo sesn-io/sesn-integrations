@@ -1,9 +1,12 @@
 """Thin Sesn scrobble client.
 
-Posts to POST {server}/api/v1/scrobble, the same endpoint Plex/Jellyfin use. It
-speaks the Trakt-style protocol (action start|pause|stop + progress); the SERVER
-decides completion at 80%, so the addon never holds a threshold. Sends only ids +
-title/year/S-E + position + the user's key — never the library or file paths.
+Current persisted playback uses POST {server}/api/v1/scrobble/events with stable
+provider/session/event IDs and original timestamps. Strict durable receipts are
+required before removing an outbox record; there is no legacy fallback. The
+legacy /api/v1/scrobble helper remains for protocol tests and older callers.
+Completion is decided by the server from position; this is not elapsed watch
+time. Payloads contain title/provider references and playback metadata, never
+local file paths or media files.
 
 The key is only ever sent to an https:// Sesn address (plain http is allowed for
 localhost testing). If Sesn answers 401 the key is remembered as invalid (by a
@@ -33,7 +36,7 @@ MAX_RETRY_AFTER = 6 * 3600
 # send_result() outcomes.
 OK = "ok"  # Sesn acknowledged the event
 RETRY = "retry"  # network/server trouble, 408 or 429: keep and back off
-DROP = "drop"  # any other 4xx: the event itself is unacceptable, discard it
+DROP = "drop"  # permanent rejection; strict outbox retains the row for review
 UNAUTHORIZED = "unauthorized"  # 401 (or a key already known to be invalid)
 NO_KEY = "no_key"  # not paired; no new capture or unverified replay
 BLOCKED = "blocked"  # the configured server address is not allowed

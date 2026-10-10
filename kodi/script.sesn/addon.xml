@@ -8,7 +8,7 @@
   </requires>
   <!-- Background scrobbler service. -->
   <extension point="xbmc.service" library="service.py"/>
-  <!-- Opening the addon shows its settings (pairing lives there). -->
+  <!-- Opening the add-on shows its browse menu, including pairing/settings. -->
   <extension point="xbmc.python.script" library="default.py">
     <provides>executable</provides>
   </extension>

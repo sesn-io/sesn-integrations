@@ -2,8 +2,8 @@
 
 Root → Watchlist / Up Next / My Lists as folders of titles. An item already on
 THIS box is marked ▶ and is playable straight from the local library; an item
-NOT on the box is shown for reference only and is NOT playable — Sesn never
-fetches what you don't have (the piracy line: show a gap, never fill it).
+NOT on the box is shown for reference only and is NOT playable. Sesn fetches
+metadata/artwork for browsing but never supplies or downloads missing media.
 
 ⚠ Untested in a live Kodi against the running API — the item field names follow
 the /api/v1/up-next + /lists/[id] shapes but should be verified on a real box.

@@ -1,16 +1,16 @@
 # Kodi integrity changes: source-only, unreleased
 
-Baseline: sesn-io/sesn-integrations fde25488a2fed44dab79325384b85741de41aa46,
-shipped addon 0.2.11. The private monorepo's Kodi 0.2.8 is historical and is not
-the source target. No version bump, package, release-branch write or deployment
-is part of these changes.
+The published add-on remains 0.2.11. The current source adds account-bound,
+durable playback delivery and local-state reconciliation. These changes are not
+in the existing ZIP, and its unchanged version must not be republished with new
+contents. A source update does not publish a release or deploy its backend.
 
 ## Required backend contracts
 
 1. POST /api/v1/link/register with the existing key and {"provider":"kodi"}
    must return {"ok":true,"account_id":"<stable authenticated identity>"}.
-   The account identifier is server-selected. Private backend commit 530373c
-   introduces this Kodi registration support. No new credential is requested.
+   The account identifier is server-selected. The server must support Kodi
+   registration with the existing key; no new credential is requested.
 2. POST /api/v1/scrobble/events must accept immutable provider ("kodi"), event_id, session_id,
    sequence and watched_at (integer UTC seconds). Start/pause/resume/stop events
    share one session; a new sitting gets a new UUID. Completion creates history;
